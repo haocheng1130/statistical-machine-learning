@@ -1,0 +1,177 @@
+\chapter{Optimization}\label{ch:optimization}
+
+The first two chapters reduced learning to choosing parameters that make an objective small: the training error of \cref{ch:learning}, or the negative log-likelihood and negative log-posterior of \cref{ch:probability}. Except in special cases, such as least squares, the minimizer has no closed form, and even when it does, computing it may be too expensive. This chapter presents the algorithms used to fit almost every model in these notes. \Cref{sec:erm} states the optimization problem and the closed-form solutions that exist for linear regression. \Cref{sec:gd} derives gradient descent and discusses step sizes and stopping rules, and \cref{sec:convexity} explains when it is guaranteed to find the global minimum. \Cref{sec:sgd} introduces stochastic gradient descent, which scales to large data sets, and \cref{sec:nonconvex} describes what changes when the objective is not convex, as it is for neural networks.
+
+\section{Learning as Optimization}\label{sec:erm}
+
+Almost every training procedure in these notes solves a problem of the form
+\begin{equation}\label{eq:erm}
+\hat\theta=\argmin_{\theta\in\Theta}J(\theta),\qquad J(\theta)=\frac1n\sum_{i=1}^nL\big(y_i,f_\theta(x_i)\big)+\lambda\,\Omega(\theta),
+\end{equation}
+where $f_\theta$ is a model with parameters $\theta$, $L$ is a loss, $\Omega$ is an optional penalty with weight $\lambda\ge0$, and the parameter space $\Theta$ is usually all of $\R^p$. Minimizing the average training loss is called \emph{empirical risk minimization}: the risk $R(f)=\E[L(Y,f(X))]$ of \cref{sec:decision-theory} is replaced by its average over the training data. By \cref{rem:nll-loss}, maximum likelihood is the special case in which $L$ is a negative log-likelihood, and MAP estimation adds the penalty $\Omega(\theta)=-\log p(\theta)$. The factor $\frac1n$ does not change the minimizer but makes the scale of $J$, and hence a good step size, independent of $n$.
+
+If $J$ is differentiable, a minimizer in the interior of $\Theta$ must be a \emph{critical point}, a point where the gradient vanishes,
+\[
+\nabla J(\theta)=\Big(\frac{\partial J}{\partial\theta_1},\dots,\frac{\partial J}{\partial\theta_p}\Big)\T=0.
+\]
+The gradient points in the direction of steepest increase of $J$, and its length is the slope in that direction. Sometimes the equation $\nabla J=0$ can be solved directly. For least squares, $J(\beta)=\norm{y-X\beta}^2$ has gradient $-2X\T(y-X\beta)$, and setting it to zero gives the \emph{normal equations} and the familiar solution
+\[
+X\T X\hat\beta=X\T y,\qquad \hat\beta=(X\T X)^{-1}X\T y.
+\]
+For ridge regression, $J(\beta)=\norm{y-X\beta}^2+\lambda\norm{\beta}^2$ gives $(X\T X+\lambda I)\hat\beta_\lambda=X\T y$ (\cref{sec:ridge}). For the logistic regression likelihood, in contrast, the equation $\nabla J=0$ is nonlinear in $\beta$ and has no explicit solution, and for a neural network it is hopeless. We then turn to iterative methods, which start from an initial guess and improve it step by step until a stopping criterion is met.
+
+\section{Gradient Descent}\label{sec:gd}
+
+Suppose we are at $\theta$ and want a direction $d$ with $\norm d=1$ along which $J$ decreases fastest. For a small step size $\eta>0$, the first-order Taylor expansion gives
+\[
+J(\theta+\eta d)\approx J(\theta)+\eta\,\nabla J(\theta)\T d,
+\]
+and by the Cauchy--Schwarz inequality the inner product $\nabla J(\theta)\T d$ is most negative for $d=-\nabla J(\theta)/\norm{\nabla J(\theta)}$. The approximation becomes exact as $\eta\to0$, so a small enough step in the direction of the negative gradient decreases $J$ unless the gradient is zero. Repeating this step is \emph{gradient descent}.
+
+\begin{algorithm}[H]
+\caption{Gradient Descent (GD)}\label{alg:gd}
+\begin{algorithmic}[1]
+\Input{Differentiable objective $J\colon\R^p\to\R$; learning rate $\eta>0$; tolerance $\epsilon>0$; maximum number of iterations $M$.}
+\Init{$\theta^{(0)}$, for example $\theta^{(0)}=0$.}
+\For{$k=0,1,\dots,M-1$}
+  \State $g^{(k)}\gets\nabla J(\theta^{(k)})$
+  \State $\theta^{(k+1)}\gets\theta^{(k)}-\eta\,g^{(k)}$ \Comment{coordinatewise: $\theta_j\gets\theta_j-\eta\,\partial J/\partial\theta_j$}
+  \If{$\lvert J(\theta^{(k+1)})-J(\theta^{(k)})\rvert\le\epsilon$ \textbf{or} $\norm{\theta^{(k+1)}-\theta^{(k)}}\le\epsilon\norm{\theta^{(k)}}$}
+    \State \textbf{break}
+  \EndIf
+\EndFor
+\Output{The final iterate $\theta^{(k+1)}$, an approximate minimizer of $J$.}
+\end{algorithmic}
+\end{algorithm}
+
+The three stopping rules are that the objective stops changing (for example, by less than $10^{-6}$), that the parameters stop changing in absolute or relative terms, or that the iteration budget $M$ (for example, $1000$) is exhausted. A small gradient norm $\norm{\nabla J(\theta^{(k)})}\le\epsilon$ is an alternative criterion; an exactly zero gradient is never reached in practice. To maximize a log-likelihood, apply the algorithm to $J=-\ell$, or equivalently use \emph{gradient ascent} $\theta\gets\theta+\eta\nabla\ell(\theta)$.
+
+\begin{remark}[Two Examples: Error Times Input]\label{rem:gd-examples}
+For least squares, $J(\beta)=\norm{y-X\beta}^2$ and the update is
+\[
+\beta^{(k+1)}=\beta^{(k)}+2\eta\,X\T\big(y-X\beta^{(k)}\big)=\beta^{(k)}+2\eta\sum_{i=1}^n\big(y_i-x_i\T\beta^{(k)}\big)x_i.
+\]
+For logistic regression with $y_i\in\{0,1\}$, the negative log-likelihood is $J(\beta)=\sum_i\big[-y_ix_i\T\beta+\log(1+e^{x_i\T\beta})\big]$ and the update is
+\[
+\beta^{(k+1)}=\beta^{(k)}+\eta\sum_{i=1}^n\big(y_i-\sigma(x_i\T\beta^{(k)})\big)x_i,\qquad \sigma(t)=\frac{1}{1+e^{-t}}.
+\]
+Both updates add to $\beta$ the inputs weighted by the prediction errors. The same ``error times input'' structure appears in multinomial logistic regression (\cref{sec:softmax-regression}) and in the error signals of backpropagation (\cref{sec:backprop}). The full logistic regression procedure is \cref{alg:logistic-fit}.
+\end{remark}
+
+\subsection{The Learning Rate}
+
+The learning rate (step size) $\eta$ is a hyperparameter. If it is too small, progress is slow; if it is too large, the iterates overshoot and oscillate across the valley; if it is much too large, they diverge. Good values are typically small, such as $0.1$, $0.01$, or $0.0001$, and are found by trying a grid such as $0.1,0.03,0.01,\dots$. A simple adaptive strategy starts with a large $\eta$ and halves it whenever a step fails to decrease $J$. The sequence of step sizes used over the iterations is called the \emph{learning rate schedule}.
+
+The \emph{training curve}, the objective $J(\theta^{(k)})$ plotted against $k$, is the basic diagnostic for an optimizer: a curve that decreases slowly suggests a larger $\eta$, and one that oscillates or increases suggests a smaller one. The training curve only tells us whether the optimization has converged. It says neither whether a global minimum was found nor how well the fitted model predicts new data, which is a question about test error (\cref{sec:train-test}).
+
+\begin{remark}[Why Large Steps Diverge]\label{rem:gd-quadratic}
+For least squares the effect of $\eta$ can be computed exactly. Subtracting the normal equations from the update gives
+\[
+\beta^{(k+1)}-\hat\beta=\big(I-2\eta X\T X\big)\big(\beta^{(k)}-\hat\beta\big).
+\]
+The error is multiplied at every step by a matrix with eigenvalues $1-2\eta\lambda_j$, where $\lambda_j$ are the eigenvalues of $X\T X$. When $X$ has full column rank, gradient descent converges if and only if all of them lie in $(-1,1)$, that is, $0<\eta<1/\lambda_{\max}(X\T X)$. With a step close to this limit the direction of largest curvature oscillates; with a smaller step the direction of smallest curvature converges slowly, at a rate governed by the ratio $\lambda_{\max}/\lambda_{\min}$. Elongated contours therefore make gradient descent zigzag (\cref{fig:gd-zigzag}).
+\end{remark}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+\foreach \r in {0.35,0.7,1.05,1.4,1.75,2.1} {\draw[gray!55] (0,0) ellipse ({2.2*\r} and {0.75*\r});}
+\fill (0,0) circle (1.5pt) node[below right, font=\scriptsize] {$\hat\theta$};
+\draw[-{Stealth[length=1.6mm]}, thick, blue!70!black] (-4.2,1.25) -- (-3.4,-1.0);
+\draw[-{Stealth[length=1.6mm]}, thick, blue!70!black] (-3.4,-1.0) -- (-2.6,0.78);
+\draw[-{Stealth[length=1.6mm]}, thick, blue!70!black] (-2.6,0.78) -- (-1.9,-0.56);
+\draw[-{Stealth[length=1.6mm]}, thick, blue!70!black] (-1.9,-0.56) -- (-1.25,0.36);
+\draw[-{Stealth[length=1.6mm]}, thick, blue!70!black] (-1.25,0.36) -- (-0.7,-0.2);
+\draw[-{Stealth[length=1.6mm]}, thick, blue!70!black] (-0.7,-0.2) -- (-0.28,0.08);
+\fill[blue!70!black] (-4.2,1.25) circle (1.5pt) node[above left, font=\scriptsize, text=black] {$\theta^{(0)}$};
+\end{tikzpicture}
+\caption{Schematic gradient descent path on the elongated elliptical contours of a quadratic objective. With a step size near the stability limit, the iterates oscillate across the narrow direction while making slow progress along the long one.}
+\label{fig:gd-zigzag}
+\end{figure}
+
+\begin{remark}[Why Iterate When a Closed Form Exists]
+Even for least squares, gradient descent can be preferable. Forming $X\T X$ costs $O(np^2)$ operations and solving the normal equations $O(p^3)$, whereas one gradient step costs $O(np)$, and a stochastic step (\cref{sec:sgd}) costs $O(p)$. When $p$ is large, a moderate number of cheap steps is much faster than the direct solution.
+\end{remark}
+
+\section{Convexity}\label{sec:convexity}
+
+When can we expect gradient descent to find the minimizer and not just some point where it gets stuck? The key property is convexity.
+
+\begin{definition}[Convex Set and Convex Function]\label{def:convex}
+A set $S\subseteq\R^p$ is \emph{convex} if $(1-t)\theta_0+t\theta_1\in S$ for all $\theta_0,\theta_1\in S$ and $t\in[0,1]$. A function $J$ on a convex set is \emph{convex} if
+\[
+J\big((1-t)\theta_0+t\theta_1\big)\le(1-t)J(\theta_0)+tJ(\theta_1)\qquad\text{for all }\theta_0,\theta_1\text{ and }t\in[0,1],
+\]
+and \emph{strictly convex} if the inequality is strict whenever $\theta_0\ne\theta_1$ and $t\in(0,1)$.
+\end{definition}
+
+Geometrically, a convex function is bowl-shaped: the chord between any two points of its graph lies above the graph, and the region above the graph is a convex set. $\R^p$ itself is convex. In practice convexity is verified with a few rules rather than the definition.
+
+\begin{enumerate}[(i)]
+  \item A twice-differentiable function of one variable is convex if $J''\ge0$; in several variables, if the Hessian $\nabla^2J$ is positive semidefinite everywhere. For example, the squared loss $(y-t)^2$ and the logistic loss $-yt+\log(1+e^t)$, whose second derivative is $\sigma(t)(1-\sigma(t))\ge0$, are convex in $t$.
+  \item Composition with an affine map preserves convexity: if $J$ is convex, so is $\beta\mapsto J(x\T\beta)$. Hence $(y_i-x_i\T\beta)^2$ and $-y_ix_i\T\beta+\log(1+e^{x_i\T\beta})$ are convex in $\beta$.
+  \item Nonnegative weighted sums of convex functions are convex. Hence the least-squares objective, the logistic negative log-likelihood, and their versions with a ridge or lasso penalty are convex in $\beta$.
+\end{enumerate}
+
+\begin{proposition}[Why Convexity Matters]\label{prop:convex-min}
+Let $J$ be convex and differentiable on $\R^p$. Then every critical point is a global minimizer, and if $J$ is strictly convex there is at most one minimizer. If moreover the curvature of $J$ is bounded (its gradient is Lipschitz continuous), gradient descent with a sufficiently small constant learning rate converges to the minimum value.
+\end{proposition}
+
+For a convex objective there are no spurious local minima, so a point where gradient descent stops is a solution of the learning problem. This is the case for linear and logistic regression, ridge and lasso (\cref{sec:lasso}, where the penalty is convex but not differentiable), the support vector machine with the hinge loss (\cref{sec:hinge}), and the negative log-likelihood of any exponential family in its natural parameter (\cref{prop:expfam-mle}).
+
+\begin{remark}[Two Corrections to the Slides]\label{rem:convex-corrections}
+The STA 314 slides state that if $f$ is convex and $g$ is linear, then both $f\circ g$ and $g\circ f$ are convex. The first is true (rule (ii)), but the second requires $g$ to be nondecreasing: with $g(t)=-t$, the function $g\circ f=-f$ is concave. The slides also state that the least-squares loss is convex ``so there is a unique solution''. Convexity guarantees that every critical point is a global minimizer, not uniqueness. The minimizer is unique if and only if $X$ has full column rank; when $p>n$, for example, the normal equations have infinitely many solutions, which is one motivation for ridge regression (\cref{sec:ridge}).
+\end{remark}
+
+\section{Stochastic Gradient Descent}\label{sec:sgd}
+
+In \eqref{eq:erm} the objective is an average over data points, $J(\theta)=\frac1n\sum_{i=1}^nJ_i(\theta)$ with $J_i(\theta)=L(y_i,f_\theta(x_i))$ (plus the penalty), and so is its gradient. Every gradient descent step therefore touches every training example, which is called \emph{batch} training. With millions of examples a single step becomes expensive, and much of the work is redundant, since many examples carry similar information. \emph{Stochastic gradient descent} (SGD) replaces the full gradient by an average over a small random subset of the data, a \emph{minibatch}.
+
+\begin{algorithm}[H]
+\caption{Minibatch Stochastic Gradient Descent (SGD)}\label{alg:sgd}
+\begin{algorithmic}[1]
+\Input{Objective $J(\theta)=\frac1n\sum_{i=1}^nJ_i(\theta)$; minibatch size $B$; learning rate schedule $(\eta_k)_{k\ge0}$; number of steps $K$.}
+\Init{$\theta^{(0)}$.}
+\For{$k=0,1,\dots,K-1$}
+  \State Draw a minibatch $S_k\subset\{1,\dots,n\}$ of size $B$ uniformly at random.
+  \State $\hat g^{(k)}\gets\frac1B\sum_{i\in S_k}\nabla J_i(\theta^{(k)})$ \Comment{noisy estimate of $\nabla J(\theta^{(k)})$}
+  \State $\theta^{(k+1)}\gets\theta^{(k)}-\eta_k\,\hat g^{(k)}$
+\EndFor
+\Output{The final iterate $\theta^{(K)}$ (or an average of the last iterates).}
+\end{algorithmic}
+\end{algorithm}
+
+With $B=1$ this is plain SGD: pick one example $i$ uniformly at random and step along $-\nabla J_i$. For least squares the step is $\beta\gets\beta+2\eta\,(y_i-x_i\T\beta)x_i$, and for logistic regression $\beta\gets\beta+\eta\,(y_i-\sigma(x_i\T\beta))x_i$. One pass through the data is called an \emph{epoch}; in practice the data are reshuffled once per epoch and split into consecutive minibatches, so that every example is used once per epoch.
+
+The justification is that the minibatch gradient is an unbiased estimate of the full gradient: for a uniformly chosen index, $\E[\nabla J_i(\theta)]=\frac1n\sum_i\nabla J_i(\theta)=\nabla J(\theta)$. Batch gradient descent moves straight downhill; SGD moves in a noisy direction that is downhill on average. The variance of $\hat g^{(k)}$ decreases like $1/B$, so the minibatch size trades the cost of a step against its accuracy, and it is itself a hyperparameter.
+
+Because the gradient estimate is noisy, the learning rate also controls the size of the fluctuations around the minimum. The typical schedule uses a large learning rate early in training, to approach the minimum quickly, and then decays it, to damp the fluctuations. A constant learning rate leaves the iterates bouncing in a neighborhood of the minimizer whose size is proportional to $\eta$; convergence requires $\eta_k\to0$, classically with $\sum_k\eta_k=\infty$ and $\sum_k\eta_k^2<\infty$, such as $\eta_k\propto1/k$.
+
+\begin{notebox}{Pros and Cons}
+The cost of an SGD step is independent of $n$, so the method makes substantial progress before it has even seen all the data, and it is the only practical choice for very large data sets and models. The noise can even help on non-convex problems (\cref{sec:nonconvex}). However, single-example gradients have high variance, the final iterate fluctuates unless the learning rate is decayed, and the method adds two hyperparameters, the minibatch size and the schedule. Practical variants such as momentum and Adam, used for neural networks in \cref{ch:nn}, adapt the step to the history of the gradients.
+\end{notebox}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & Cost per step & When to use \\
+\midrule
+Closed form & $O(np^2+p^3)$, once & small $p$; only for special objectives such as least squares and ridge \\
+Gradient descent & $O(np)$ for a linear model & moderate $n$; smooth objectives; deterministic, easy to diagnose \\
+Minibatch SGD & $O(Bp)$ for a linear model & large $n$; neural networks; any objective that is an average \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Non-Convex Optimization}\label{sec:nonconvex}
+
+Many important objectives are not convex: the training loss of a neural network (\cref{ch:nn}), the likelihood of a mixture model (\cref{sec:gmm}), the $k$-means objective (\cref{alg:kmeans}), and the evidence lower bound of a variational autoencoder (\cref{sec:vae}). For such objectives a critical point may be a local minimum that is worse than the global one, or a \emph{saddle point}, a minimum in some directions and a maximum in others. Gradient descent run to convergence finds a point where the gradient (approximately) vanishes, and which one depends on the initialization. Two practical responses are common: restart from several random initializations and keep the best solution, and use stochastic gradients, whose noise gives the iterates a better chance of escaping poor local minima and saddle points and of settling in broad, favorable regions. For deep networks, local minima found by SGD are often good enough, and the difficulty lies as much in generalization as in optimization.
+
+\begin{remark}[Gradient-Based Optimization Throughout the Notes]\label{rem:sgd-everywhere}
+Gradient descent and SGD are the computational backbone of the rest of these notes. They fit logistic and softmax regression (\cref{alg:logistic-fit}) and neural networks via backpropagation (\cref{alg:nn-training}); they optimize the evidence lower bound in stochastic variational inference and variational autoencoders (\cref{alg:svi,alg:vae}); and they train word embeddings and diffusion models (\cref{alg:skipgram,alg:ddpm-train}). Boosting with the squared loss fits each new tree to the residuals, which are the negative gradient of the loss with respect to the current predictions, so it can be read as gradient descent in the space of functions (\cref{alg:boosting}). Hamiltonian Monte Carlo uses the gradient of a log-density to propose distant moves (\cref{alg:hmc}). The idea behind SGD, replacing an average that is expensive to compute by an unbiased estimate from a random subsample, is the Monte Carlo principle of \cref{sec:mc-estimation}.
+\end{remark}
+
+\begin{notebox}{Limitations and what comes next}
+Part~I has provided the three ingredients of a learning method: a target (the best predictor of \cref{ch:learning}), a principle for fitting (likelihood and Bayes, \cref{ch:probability}), and algorithms for computing the fit (this chapter). What it has not provided is a model. Part~II starts with the simplest and most thoroughly understood one, the linear regression model, where the fit has a closed form, the sampling properties of the estimates are known exactly, and the question of how to choose among competing models (\cref{sec:bias-variance}) can be studied in detail.
+\end{notebox}

@@ -1,0 +1,218 @@
+\chapter{Kernel Methods and Gaussian Processes}\label{ch:kernels}
+
+Two earlier observations point to the same idea. \Cref{ch:nonlinear} made linear methods flexible by expanding the input into basis functions, and the more flexibility we want, the more features we need. \Cref{ch:svm} showed that the SVM touches the data only through inner products $x_i\T x_j$. This chapter combines the two. If an algorithm can be written in terms of inner products, then replacing them by inner products of features, $\phi(x_i)\T\phi(x_j)$, runs the algorithm in feature space, and for many useful feature maps this inner product can be computed directly, without forming $\phi$ at all, even when the feature space is infinite-dimensional. \Cref{sec:feature-maps} explains why explicit features become expensive, \cref{sec:kernel-trick} derives kernel ridge regression and the kernel SVM, and \cref{sec:kernel-examples} describes which functions qualify as kernels. \Cref{sec:gp} takes the Bayesian view of the same model: Bayesian linear regression in feature space turns into a prior over functions, the Gaussian process, whose posterior mean coincides with kernel ridge regression and which in addition quantifies uncertainty.
+
+\section{Feature Maps and Their Cost}\label{sec:feature-maps}
+
+A \emph{feature map} $\phi\colon\R^p\to\R^M$ turns the linear model into $y=\beta\T\phi(x)+\varepsilon$, which is linear in the parameters but not in $x$ (\cref{sec:basis}). Collect the features of the training inputs in the $n\times M$ matrix $\Phi$ whose $i$-th row is $\phi(x_i)\T$. Least squares and its relatives then apply with $\Phi$ in place of $X$. The same idea works for classification: two classes arranged as a disk inside a ring in $\R^2$ are not linearly separable, but with $\phi(a,b)=(a,b,a^2+b^2)$ the third coordinate separates them by a plane.
+
+Explicit feature maps have two drawbacks. First, flexibility may require a number of features $M$ that is large, may need to grow with $n$, and may exceed $n$, in which case the least squares solution is not unique and regularization is needed. Second, computing the features is expensive. For $x\in\R^m$ the map that produces all monomials of degree at most two,
+\[
+\phi(x)=\big(x_1^2,\dots,x_p^2,\ \sqrt2x_1x_2,\dots,\sqrt2x_{p-1}x_p,\ \sqrt{2c}\,x_1,\dots,\sqrt{2c}\,x_p,\ c\big),
+\]
+has $2p+\binom p2+1$ coordinates, so evaluating $\phi(x)\T\phi(x')$ costs $O(p^2)$ operations. Yet a direct calculation shows that
+\[
+\phi(x)\T\phi(x')=(x\T x'+c)^2,
+\]
+which costs $O(p)$. For degree $d$ the gap grows to $O(p^d)$ versus $O(p)$. The question is which algorithms need only these inner products.
+
+\section{Kernel Ridge Regression and the Kernel Trick}\label{sec:kernel-trick}
+
+Ridge regression (\cref{sec:ridge}) in feature space minimizes
+\[
+E(\beta)=\tfrac12\norm{y-\Phi\beta}^2+\tfrac\lambda2\norm\beta^2,\qquad\beta\in\R^M.
+\]
+Setting the gradient $\Phi\T\Phi\beta-\Phi\T y+\lambda\beta$ to zero and rearranging gives
+\[
+\beta=\frac1\lambda\Phi\T(y-\Phi\beta)=\Phi\T a,\qquad a:=\frac1\lambda(y-\Phi\beta)\in\R^n.
+\]
+So the solution is a linear combination of the training features, $\beta=\sum_ia_i\phi(x_i)$. Substituting $\beta=\Phi\T a$ into the definition of $a$ yields $\lambda a=y-\Phi\Phi\T a$, that is,
+\[
+a=(K+\lambda I_n)^{-1}y,\qquad K:=\Phi\Phi\T,\quad K_{ij}=\phi(x_i)\T\phi(x_j).
+\]
+The prediction at a new input is $\hat y(x)=\phi(x)\T\beta=\phi(x)\T\Phi\T a$, and $\Phi\phi(x)$ is the vector of inner products $\phi(x_i)\T\phi(x)$. Every quantity is an inner product of features.
+
+\begin{definition}[Kernel and Gram Matrix]
+The function $k(x,x')=\phi(x)\T\phi(x')$ is the \emph{kernel} associated with $\phi$. For inputs $x_1,\dots,x_n$, the $n\times n$ matrix $K$ with entries $K_{ij}=k(x_i,x_j)$ is the \emph{Gram} or \emph{kernel matrix}, and $k(x)\in\R^n$ denotes the vector with entries $k(x_i,x)$.
+\end{definition}
+
+\begin{proposition}[Kernel Ridge Regression]\label{prop:kernel-ridge}
+The ridge regression prediction in the feature space of $\phi$ is
+\[
+\hat y(x)=k(x)\T(K+\lambda I_n)^{-1}y=\sum_{i=1}^na_i\,k(x_i,x),\qquad a=(K+\lambda I_n)^{-1}y.
+\]
+\end{proposition}
+
+This is the \emph{dual} or \emph{kernel} form of ridge regression. The primal solution $\beta=(\Phi\T\Phi+\lambda I_M)^{-1}\Phi\T y$ requires solving an $M\times M$ system, the dual an $n\times n$ system; the two agree because of the identity $(\Phi\T\Phi+\lambda I_M)^{-1}\Phi\T=\Phi\T(\Phi\Phi\T+\lambda I_n)^{-1}$. The decisive advantage of the dual form is that it never mentions $\phi$: we may choose $k$ directly, as long as it is the inner product of \emph{some} feature map, and work in feature spaces of any dimension. This substitution of a kernel for an inner product is called the \emph{kernel trick}.
+
+\begin{algorithm}[H]
+\caption{Kernel Ridge Regression}\label{alg:kernel-ridge}
+\begin{algorithmic}[1]
+\Input{Data $\{(x_i,y_i)\}_{i=1}^n$; kernel $k$; penalty $\lambda>0$.}
+\State $K_{ij}\gets k(x_i,x_j)$ for $i,j=1,\dots,n$ \Comment{$O(n^2)$ kernel evaluations}
+\State Solve $(K+\lambda I_n)\,a=y$ for $a$ \Comment{e.g.\ by Cholesky; $O(n^3)$}
+\Output{Predictor $\hat y(x)=\sum_{i=1}^na_i\,k(x_i,x)$; each prediction costs $n$ kernel evaluations.}
+\end{algorithmic}
+\end{algorithm}
+
+The penalty $\lambda$ and any parameters of the kernel are tuned by cross-validation (\cref{sec:cv}). The cost is governed by $n$, not by the dimension of the feature space, which is the reverse of ordinary ridge regression: kernels pay off when $M$ is large or infinite and $n$ is moderate.
+
+\begin{remark}[Kernel Regression as a Weighted Average]\label{rem:kernel-knn}
+The prediction $\hat y(x)=\sum_ia_ik(x_i,x)$ combines the training points, weighted by how close $x$ is to each $x_i$ as measured by the kernel. This looks very much like $k$-nearest neighbors (\cref{alg:knn}) and local regression (\cref{sec:local-regression}), with a smooth similarity in place of a hard neighborhood. The weights $a=(K+\lambda I)^{-1}y$, however, are obtained by solving a linear system rather than by normalizing kernel values, so they account for the correlations among the training points.
+\end{remark}
+
+\begin{remark}[Kernelized Least Squares in Tutorial 8]
+Tutorial~8 writes ordinary least squares in dual form using $(X\T X)^{-1}X\T=X\T(XX\T)^{-1}$, which requires both matrices to be invertible and hence a square $X$ of full rank. With a ridge penalty the corresponding identity holds for every $\lambda>0$ and every $\Phi$, which is why the kernel trick for regression is always stated for ridge regression.
+\end{remark}
+
+\subsection{The Kernel SVM}\label{sec:kernel-svm}
+
+The SVM dual of \cref{prop:svm-dual} also depends on the data only through inner products. Replacing $x_i\T x_j$ by $k(x_i,x_j)$ gives the \emph{kernel SVM}:
+\[
+\max_\alpha\ \sum_{i=1}^n\alpha_i-\frac12\sum_{i,j}\alpha_i\alpha_jy_iy_j\,k(x_i,x_j)\quad\text{subject to}\quad\sum_i\alpha_iy_i=0,\quad0\le\alpha_i\le C,
+\]
+with decision function
+\[
+\hat f(x)=\hat\beta_0+\sum_{i\in\mathcal S}\hat\alpha_iy_i\,k(x_i,x).
+\]
+The decision boundary $\{\hat f(x)=0\}$ is a hyperplane in feature space and a curved surface in input space. For the disk-and-ring example, the kernel of $\phi(a,b)=(a,b,a^2+b^2)$ is $k(x,x')=x\T x'+\norm x^2\norm{x'}^2$, computed without forming $\phi$.
+
+\begin{remark}[One Trick, Two Losses]
+Kernel ridge regression and the kernel SVM both minimize a loss plus a ridge penalty $\norm\beta^2$ in feature space; the first uses the squared loss, the second the hinge loss (\cref{sec:hinge}). In both cases the solution is a combination $\sum_ic_i\,k(x_i,\cdot)$ of kernel functions centered at the training points. This is a general fact, known as the representer theorem: for any loss plus a ridge penalty, the minimizer lies in the span of the training features. The hinge loss makes most coefficients zero (only support vectors), the squared loss makes all of them nonzero.
+\end{remark}
+
+\section{Kernels}\label{sec:kernel-examples}
+
+Since we want to choose $k$ directly, we need to know which functions are inner products of feature maps.
+
+\begin{definition}[Positive Semidefinite Kernel]
+A symmetric function $k(x,x')=k(x',x)$ is a \emph{kernel} if for every $n$ and all points $x_1,\dots,x_n$ the Gram matrix $K_{ij}=k(x_i,x_j)$ is positive semidefinite: $u\T Ku=\sum_{i,j}u_iu_jk(x_i,x_j)\ge0$ for all $u\in\R^n$.
+\end{definition}
+
+Every feature map gives a kernel, since $u\T Ku=u\T\Phi\Phi\T u=\norm{\Phi\T u}^2\ge0$. Conversely, one can show that every kernel in this sense is the inner product of some feature map, possibly into an infinite-dimensional space. So we can forget the feature map, choose a kernel as a measure of similarity between inputs, and let the dimension of the feature space take care of itself. (The tutorial writes the condition as $\sum_{i,j}\alpha_i\alpha_jk(x,x')\ge0$; the points must vary with the indices, $k(x_i,x_j)$.)
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Kernel & $k(x,x')$ & Feature space \\
+\midrule
+Linear & $x\T x'$ & $\R^p$; recovers the linear method \\
+Polynomial & $(x\T x'+c)^d$, $c>0$ & all monomials of degree $\le d$ \\
+Gaussian (RBF) & $\exp\big(-\norm{x-x'}^2/2\ell^2\big)$ & infinite-dimensional \\
+Exponential & $\exp\big(-\norm{x-x'}/\ell\big)$ & infinite-dimensional; rough functions \\
+Cosine & $x\T x'/(\norm x\norm{x'})$ & $\phi(x)=x/\norm x$; no savings \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+For the Gaussian kernel, write $\exp(-\norm{x-x'}^2/2\ell^2)=e^{-\norm x^2/2\ell^2}e^{-\norm{x'}^2/2\ell^2}\exp(x\T x'/\ell^2)$ and expand the last factor in its Taylor series: it is an infinite sum of polynomial kernels of every degree, so the feature space contains monomials of all degrees. The cosine kernel is a counterexample to the claim that kernels always save computation; its feature map is as cheap as the kernel.
+
+New kernels can be built from old ones. If $k_1,k_2$ are kernels, then so are $ck_1$ for $c>0$, $f(x)k_1(x,x')f(x')$ for any function $f$, $k_1+k_2$, $k_1k_2$, $\exp(k_1)$, $q(k_1)$ for a polynomial $q$ with nonnegative coefficients, and $x\T Ax'$ for a positive semidefinite matrix $A$. The Gaussian kernel, for example, arises from the linear kernel through the scaling, exponential, and $f(x)k_1(x,x')f(x')$ rules, as its factorization above shows.
+
+Kernels also differ in how far their influence reaches. A \emph{local} kernel such as the Gaussian decays with distance, so a prediction depends mostly on nearby training points, and the bandwidth $\ell$ plays the role of $k$ in $k$-NN. A \emph{global} kernel such as the polynomial kernel lets distant points interact. Closely related are \emph{radial basis function} expansions, $f(x)=\sum_{i=1}^nw_i\,h(\norm{x-x_i})$ with one basis function centered at every data point, for instance a Gaussian bump $h$, fitted by least squares; with $h$ a Gaussian this has the form of the kernel ridge predictor with the Gaussian kernel, and it coincides with it when the weights are penalized by $\lambda\,w\T Kw$ (a plain ridge penalty $\lambda\norm{w}^2$ gives a different fit). Fitting noisy samples of a sine curve this way produces a smooth interpolant whose wiggliness is controlled by $\ell$ and $\lambda$.
+
+\begin{remark}[Fixed versus Learned Features]\label{rem:kernel-vs-nn}
+A kernel fixes the features in advance through the choice of $k$; only the weights are learned. A neural network (\cref{ch:nn}) learns the features: its hidden layers compute $h=\phi_\theta(x)$, and its last layer is a linear model $w\T h+b$ for regression or a logistic model $\sigma(w\T h+b)$ for binary classification, exactly the models of \cref{ch:linreg,ch:classification} applied to learned features.
+\end{remark}
+
+\section{Gaussian Processes}\label{sec:gp}
+
+Kernel ridge regression gives a point prediction. The Bayesian treatment of the same model also gives its uncertainty, and leads to a way of specifying a prior directly over functions.
+
+\subsection{From Bayesian Linear Regression to a Prior over Functions}
+
+Consider Bayesian linear regression (\cref{sec:blr}) in feature space: $y=f(x)+\varepsilon$ with $f(x)=\beta\T\phi(x)$, noise $\varepsilon\sim\cN(0,\sigma^2)$, and prior $\beta\sim\cN(0,\tau^2I_M)$. The prior on $\beta$ induces a distribution on the vector of function values at the training inputs, $f=(f(x_1),\dots,f(x_n))\T=\Phi\beta$. As a linear transformation of a Gaussian vector it is Gaussian (\cref{sec:gaussian}):
+\[
+f\sim\cN\big(0,\tau^2\Phi\Phi\T\big),\qquad\Cov\big(f(x_i),f(x_j)\big)=\tau^2\phi(x_i)\T\phi(x_j)=\tau^2k(x_i,x_j).
+\]
+The parameters have disappeared: the prior on $\beta$ is equivalent to a joint Gaussian distribution on the function values at any finite set of inputs, with covariance given by a kernel. We can therefore skip the feature map and the parameters and place the prior on $f$ directly. From now on we absorb $\tau^2$ into the kernel.
+
+\begin{definition}[Gaussian Process]
+A \emph{Gaussian process} is a distribution over functions $f$ such that for every $n\ge1$ and every set of inputs $x_1,\dots,x_n$ the vector $(f(x_1),\dots,f(x_n))$ is jointly Gaussian. It is specified by a mean function $m(x)=\E[f(x)]$ and a covariance function $k(x,x')=\Cov(f(x),f(x'))$, which must be a kernel; we write $f\sim\GP(m,k)$. In most applications $m=0$.
+\end{definition}
+
+The kernel encodes our prior beliefs about $f$. Samples from a GP with the Gaussian kernel are smooth, those with the exponential kernel are continuous but rough, and the bandwidth sets the length scale on which the function varies.
+
+\subsection{Gaussian Process Regression}
+
+Let $f\sim\GP(0,k)$ and $y_i=f(x_i)+\varepsilon_i$ with independent $\varepsilon_i\sim\cN(0,\sigma^2)$. The responses $y=(y_1,\dots,y_n)\T$ combine two independent Gaussian sources of randomness, so their marginal distribution is
+\[
+y\sim\cN(0,C),\qquad C=K+\sigma^2I_n,
+\]
+where $K$ is the Gram matrix of the training inputs. To predict the response $y_*$ at a new input $x_*$, append it to the vector:
+\[
+\begin{pmatrix}y\\y_*\end{pmatrix}\sim\cN\left(0,\begin{pmatrix}C&k_*\\k_*\T&c_*\end{pmatrix}\right),\qquad k_*=\big(k(x_i,x_*)\big)_{i=1}^n,\quad c_*=k(x_*,x_*)+\sigma^2.
+\]
+The inputs are treated as fixed throughout.
+
+\begin{proposition}[GP Predictive Distribution]\label{prop:gp-predictive}
+Given the training responses $y$, the response at $x_*$ is Gaussian,
+\[
+y_*\given y\sim\cN\big(\mu_*,\ s_*^2\big),\qquad\mu_*=k_*\T C^{-1}y,\qquad s_*^2=c_*-k_*\T C^{-1}k_*.
+\]
+For the noise-free function value $f(x_*)$, the mean is the same and the variance is $s_*^2-\sigma^2$.
+\end{proposition}
+
+This is the conditioning formula for jointly Gaussian vectors, \cref{prop:gauss-cond}, applied to the block covariance above. The mean is a linear combination of the observed responses, and both the mean and the variance depend on $x_*$ only through kernel evaluations. The variance is the prior variance minus a nonnegative term that measures how much the training data inform $x_*$: near the data the term is large and the variance small; far away $k_*\approx0$ for a local kernel, and the variance returns to its prior level.
+
+\begin{algorithm}[H]
+\caption{Gaussian Process Regression}\label{alg:gp-regression}
+\begin{algorithmic}[1]
+\Input{Data $\{(x_i,y_i)\}_{i=1}^n$; kernel $k$; noise variance $\sigma^2$; test inputs $x_{*,1},\dots,x_{*,r}$.}
+\State $C\gets K+\sigma^2I_n$ with $K_{ij}=k(x_i,x_j)$
+\State Compute the Cholesky factor $L$ with $C=LL\T$ \Comment{$O(n^3)$, once}
+\State $a\gets C^{-1}y$ by two triangular solves with $L$
+\For{$j=1,\dots,r$}
+  \State $k_*\gets\big(k(x_i,x_{*,j})\big)_{i=1}^n$
+  \State $\mu_{*,j}\gets k_*\T a$ \Comment{predictive mean}
+  \State $v\gets L^{-1}k_*$; \quad $s^2_{*,j}\gets k(x_{*,j},x_{*,j})+\sigma^2-v\T v$ \Comment{predictive variance}
+\EndFor
+\State $\log p(y)\gets-\frac12y\T a-\sum_i\log L_{ii}-\frac n2\log(2\pi)$ \Comment{log marginal likelihood, \eqref{eq:gp-marglik}}
+\Output{Predictive means $\mu_{*,j}$ and variances $s^2_{*,j}$ (subtract $\sigma^2$ for the noise-free $f$); $\log p(y)$.}
+\end{algorithmic}
+\end{algorithm}
+
+A pointwise interval $\mu_*\pm2s_*$ gives an approximate $95\%$ predictive band, which widens between and beyond the observations. As with kernel ridge regression, training costs $O(n^3)$ and each prediction $O(n)$ for the mean and $O(n^2)$ for the variance.
+
+\begin{remark}[GP Regression Is Bayesian Kernel Ridge Regression]\label{rem:gp-krr}
+The predictive mean $\mu_*=k_*\T(K+\sigma^2I)^{-1}y$ is exactly the kernel ridge prediction of \cref{prop:kernel-ridge} with penalty $\lambda=\sigma^2$. This parallels \cref{sec:map-view}, where ridge regression appeared as the posterior mode under a Gaussian prior; for Gaussian posteriors the mode and the mean coincide. The Gaussian process adds what ridge regression lacks, the predictive variance, just as Bayesian linear regression adds a predictive variance to ridge regression (\cref{prop:blr-predictive}). With the linear kernel, GP regression \emph{is} Bayesian linear regression.
+\end{remark}
+
+\subsection{Learning the Hyperparameters}
+
+So far nothing has been learned except through the choice of the kernel. In practice the kernel belongs to a parametric family, such as the Gaussian kernel with an amplitude and a bandwidth, and together with $\sigma^2$ its parameters form a vector $\theta$ of hyperparameters. Since $y\sim\cN(0,C_\theta)$, they can be estimated by maximizing the \emph{log marginal likelihood}
+\begin{equation}\label{eq:gp-marglik}
+\log p(y\given\theta)=-\frac12y\T C_\theta^{-1}y-\frac12\log|C_\theta|-\frac n2\log(2\pi),
+\end{equation}
+by gradient-based optimization (\cref{ch:optimization}) or grid search. The first term rewards fitting the data, the second penalizes covariances that are too flexible, so the criterion balances fit against complexity without a validation set. This is the GP counterpart of choosing $\lambda$ for kernel ridge regression by cross-validation, and it is an instance of maximizing the evidence, which reappears in \cref{ch:latent}.
+
+\subsection{Gaussian Processes for Classification}
+
+For a binary response $y\in\{0,1\}$, place a GP prior on a latent function $a(x)$ and squash it, $\Prob(y=1\given a)=\sigma(a(x))$, as in logistic regression (\cref{sec:logistic}). The process $\sigma(a(x))$ takes values in $(0,1)$ but is no longer Gaussian. The predictive probability
+\[
+p(y_*\given y)=\int p(y_*\given a_*)\,p(a_*\given y)\dd a_*
+\]
+requires the posterior of the latent values given binary observations, which has no closed form because the Bernoulli likelihood is not Gaussian. It must be approximated, by Markov chain Monte Carlo (\cref{ch:mcmc}), by numerical integration, or by fitting a Gaussian approximation to the posterior in the spirit of \cref{ch:vi}. In practice a small jitter $\nu\,\delta_{ij}$ is added to the covariance of $a$ for numerical stability.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+ & Bayesian linear regression & Kernel ridge regression & GP regression \\
+\midrule
+Model & $\beta\T\phi(x)$, Gaussian prior on $\beta$ & $\beta\T\phi(x)$, ridge penalty & $f\sim\GP(0,k)$ \\
+Output & posterior mean and variance & point prediction & posterior mean and variance \\
+Linear algebra & $M\times M$ & $n\times n$ & $n\times n$ \\
+Tuning & prior and noise variances & $\lambda$ and kernel by CV & $\theta$ by marginal likelihood \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}{Pros and Cons}
+Kernel methods turn linear algorithms into flexible nonlinear ones at the cost of choosing a kernel, and Gaussian processes add calibrated uncertainty and a principled way to tune hyperparameters, all with closed-form formulas for regression. They work best with moderate $n$ and when a good notion of similarity between inputs is available. However, training scales as $O(n^3)$ in time and $O(n^2)$ in memory, predictions require all training points, the results depend heavily on the kernel, and classification with a GP needs approximate inference.
+\end{notebox}
+
+\begin{notebox}{Limitations and what comes next}
+Kernel methods and Gaussian processes are smoothers: the prediction at $x$ is driven by training points that are similar to $x$ under a similarity chosen in advance, and every prediction involves the whole training set. In many applications the relevant notion of similarity is not known beforehand, varies across the input space, or depends on only a few of many features. Decision trees (\cref{ch:trees}) take a different route: they learn an adaptive partition of the input space from the data and predict by a constant on each cell, and their ensembles are among the most accurate off-the-shelf predictors. Neural networks (\cref{ch:nn}) go further and learn the features themselves.
+\end{notebox}

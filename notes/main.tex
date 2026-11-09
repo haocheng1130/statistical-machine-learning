@@ -1,0 +1,50 @@
+\documentclass[11pt,twoside,openany]{book}
+\input{preamble}
+
+\begin{document}
+
+\frontmatter
+\begin{titlepage}
+  \centering
+  \vspace*{0.22\textheight}
+  {\sffamily\bfseries\Huge Statistical Machine Learning\par}
+  \vspace{0.8em}
+  {\sffamily\Large Lecture Notes for STA 314 and STA 414\par}
+  \vspace{2.5em}
+  {\large Haocheng Sun\par}
+  \vspace{0.6em}
+  {\large University of Toronto, Fall 2024 -- Winter 2025\par}
+  \vfill
+  {\small Based on the STA 314 lectures and tutorials (Fall 2024) and the STA 414/2104 lectures and tutorials (Winter 2025).\par}
+\end{titlepage}
+
+\tableofcontents
+
+\include{chapters/overview}
+
+\mainmatter
+\part{Foundations}\label{part:foundations}
+\include{chapters/ch01_learning}
+\include{chapters/ch02_probability}
+\include{chapters/ch03_optimization}
+
+\part{Prediction}\label{part:prediction}
+\include{chapters/ch04_linreg}
+\include{chapters/ch05_shrinkage}
+\include{chapters/ch06_nonlinear}
+\include{chapters/ch07_classification}
+\include{chapters/ch08_svm}
+\include{chapters/ch09_kernels}
+\include{chapters/ch10_trees}
+\include{chapters/ch11_nn}
+
+\part{Probabilistic Models and Inference}\label{part:probabilistic}
+\include{chapters/ch12_pgm}
+\include{chapters/ch13_inference}
+\include{chapters/ch14_mcmc}
+\include{chapters/ch15_vi}
+\include{chapters/ch16_latent}
+\include{chapters/ch17_attention}
+\include{chapters/ch18_diffusion}
+
+\end{document}

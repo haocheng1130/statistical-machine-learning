@@ -1,0 +1,216 @@
+\chapter{Neural Networks}\label{ch:nn}
+
+Every flexible method so far rests on features chosen in advance: polynomial and spline bases (\cref{ch:nonlinear}), kernels (\cref{ch:kernels}), or thresholds on the raw coordinates (\cref{ch:trees}). Once the features are fixed, the model on top of them is linear or piecewise constant, and its quality is limited by how well the features were designed. Neural networks remove this limitation by learning the features together with the predictor, and they are trained with the gradient methods of \cref{ch:optimization}. \Cref{sec:nn-xor} shows why fixed linear models are not enough and why feature maps help; \cref{sec:mlp} defines multilayer perceptrons; \cref{sec:nn-expressivity} discusses what they can represent and how they learn features; \cref{sec:backprop} derives backpropagation, the algorithm that computes their gradients; and \cref{sec:nn-training} assembles the training procedure. The lectures write $t$ for the target and $y$ for the output of the network; to stay consistent with the rest of the notes, here the target (the response) is $y$ and the network output is $\hat y$.
+
+\section{The Limits of Linear Classifiers}\label{sec:nn-xor}
+
+A data set with binary targets is \emph{linearly separable} if some hyperplane $w\T x+b=0$ puts all examples with $y=1$ on one side and all examples with $y=0$ on the other. The logical function NOT, for example, is separable. The function XOR is not:
+
+\begin{center}
+\small
+\begin{tabular}{@{}cc|c@{\qquad\qquad}ccc|c@{}}
+\toprule
+$x_1$ & $x_2$ & $y$ & $\psi_1(x)=x_1$ & $\psi_2(x)=x_2$ & $\psi_3(x)=x_1x_2$ & $y$ \\
+\midrule
+0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+0 & 1 & 1 & 0 & 1 & 0 & 1 \\
+1 & 0 & 1 & 1 & 0 & 0 & 1 \\
+1 & 1 & 0 & 1 & 1 & 1 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The reason is convexity: the set where a linear classifier predicts $0$ is a half-space, hence convex, so if it contains $(0,0)$ and $(1,1)$ it contains their midpoint $(\frac12,\frac12)$; the same argument for the other class puts $(\frac12,\frac12)$, the midpoint of $(0,1)$ and $(1,0)$, in the half-space for class $1$ as well, which is impossible.
+
+A \emph{feature map} can fix this. With $\psi(x)=(x_1,x_2,x_1x_2)$ the data become separable; for instance, the rule $\psi_1+\psi_2-2\psi_3-\frac12>0$ reproduces the table. This is the same trick as polynomial regression (\cref{sec:basis}) and the kernel trick (\cref{sec:kernel-trick}): a linear method in a richer feature space. The difficulty is that good features are hard to design by hand, especially for raw inputs such as the $784$ pixels of an image. Neural networks learn them.
+
+\section{Multilayer Perceptrons}\label{sec:mlp}
+
+A neural network is built from simple units. A \emph{unit} (artificial neuron) computes a weighted sum of its inputs plus a bias and applies a nonlinearity, $\hat y=\varphi(w\T x+b)$. With the logistic function $\varphi=\sigma$, $\sigma(z)=1/(1+e^{-z})$, a single unit is exactly a logistic regression model (\cref{sec:logistic}). A \emph{feed-forward network} connects many units in a directed acyclic graph, grouped into layers; in a \emph{fully connected} layer every input unit feeds every output unit.
+
+\begin{definition}[Multilayer Perceptron]\label{def:mlp}
+A \emph{multilayer perceptron} (MLP) with $L$ layers maps an input $x$ to an output $\hat y$ through hidden representations $h^{(1)},\dots,h^{(L-1)}$:
+\[
+h^{(0)}=x,\qquad h^{(\ell)}=\varphi\big(W^{(\ell)}h^{(\ell-1)}+b^{(\ell)}\big),\quad \ell=1,\dots,L-1,\qquad \hat y=f^{(L)}\big(h^{(L-1)}\big),
+\]
+where $W^{(\ell)}$ are weight matrices, $b^{(\ell)}$ bias vectors (the superscript $(L)$ marks the last layer; an unadorned $L$ later denotes the loss), and the activation function $\varphi$ is applied componentwise. The output layer depends on the task: $\hat y=w^{(L)\top}h^{(L-1)}+b^{(L)}$ for regression, $\hat y=\sigma(w^{(L)\top}h^{(L-1)}+b^{(L)})$ for binary classification, and $\hat y=\softmax(W^{(L)}h^{(L-1)}+b^{(L)})$ for $K$ classes.
+\end{definition}
+
+The network computes a composition $\hat y=f^{(L)}\circ\dots\circ f^{(1)}(x)$. This modularity matters in practice: each layer can be implemented as a black box with a forward computation and, as we shall see, a backward one.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  unit/.style={draw, circle, minimum size=8mm, inner sep=0pt, font=\small},
+  arr/.style={-{Stealth[length=1.8mm]}, thin},
+  lab/.style={font=\scriptsize\itshape, text=black!70}
+]
+\node[unit] (x1) at (0,0.8) {$x_1$};
+\node[unit] (x2) at (0,-0.8) {$x_2$};
+\node[unit] (h1) at (3,0.8) {$h_1$};
+\node[unit] (h2) at (3,-0.8) {$h_2$};
+\node[unit] (y1) at (6,0.8) {$\hat y_1$};
+\node[unit] (y2) at (6,-0.8) {$\hat y_2$};
+\foreach \i in {x1,x2} \foreach \j in {h1,h2} \draw[arr] (\i) -- (\j);
+\foreach \i in {h1,h2} \foreach \j in {y1,y2} \draw[arr] (\i) -- (\j);
+\node[lab] at (0,-1.6) {input $x$};
+\node[lab] at (3,-1.6) {hidden layer $h$};
+\node[lab] at (6,-1.6) {output $\hat y$};
+\end{tikzpicture}
+\caption{The two-layer network of the lectures, $h=\sigma(W^{(1)}x+b^{(1)})$ and $\hat y=W^{(2)}h+b^{(2)}$. Every arrow carries a weight; biases are not drawn.}
+\label{fig:two-layer-net}
+\end{figure}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Activation & $\varphi(z)$ & Remarks \\
+\midrule
+Identity & $z$ & a network of linear layers is linear \\
+Hard threshold & $\ind\{z>0\}$ & the original perceptron; derivative is zero almost everywhere \\
+Logistic & $1/(1+e^{-z})$ & smooth version of the threshold \\
+Hyperbolic tangent & $(e^z-e^{-z})/(e^z+e^{-z})$ & a rescaled logistic, with values in $(-1,1)$ \\
+ReLU & $\max(0,z)$ & the default in modern networks \\
+Soft ReLU & $\log(1+e^z)$ & smooth version of ReLU \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}[Connection to Softmax Regression]
+Everything except the last layer computes a feature vector $h^{(L-1)}=\phi_\theta(x)$, and the last layer is a linear, logistic, or softmax regression (\cref{sec:softmax-regression}) on these features. A neural network is therefore a generalized linear model whose features are learned jointly with the coefficients.
+\end{remark}
+
+\section{Expressive Power and Feature Learning}\label{sec:nn-expressivity}
+
+The nonlinearity is essential. If $\varphi$ is the identity, each layer is an affine map, and a composition of affine maps is affine: $W^{(3)}W^{(2)}W^{(1)}x=W'x$. A deep linear network is no more expressive than linear regression. With a nonlinear activation the picture changes completely.
+
+\begin{theorem}[Universal Approximation, Informal]\label{thm:universal}
+A feed-forward network with one hidden layer and a non-polynomial activation such as the threshold, the logistic function, or ReLU can approximate any continuous function on a compact set arbitrarily well, provided the hidden layer has enough units.
+\end{theorem}
+
+XOR shows the mechanism on a small scale. With hard thresholds, take $h_1=\ind\{x_1+x_2-0.5>0\}$, which computes $x_1\vee x_2$, and $h_2=\ind\{x_1+x_2-1.5>0\}$, which computes $x_1\wedge x_2$. Then $\hat y=\ind\{h_1-h_2-0.5>0\}$ is $x_1$ XOR $x_2$: the hidden layer computes features in which the problem is linearly separable. A logistic unit $\sigma(c(w\T x+b))$ approaches the threshold as the scale $c$ grows, so logistic networks can do the same, and, unlike threshold networks, they are differentiable and can be trained by gradient descent.
+
+Each hidden unit acts as a \emph{feature detector}. In a network trained to classify handwritten digits, the weight vector of a first-layer unit, reshaped into a $28\times28$ image, shows the pattern it responds to, such as a diagonal stroke. Unlike the hard-coded features of polynomial regression, these features adapt to the data.
+
+\begin{remark}[Connection to Kernels and Basis Functions]
+Basis expansions (\cref{sec:basis}) and kernel methods (\cref{sec:kernel-trick}) fix a feature map $\phi$, possibly infinite-dimensional, and learn only a linear function of $\phi(x)$; the optimization is then convex. A neural network learns $\phi_\theta$ as well. This makes it far more adaptive, but the training problem becomes non-convex (\cref{sec:convexity}), and the features have to be found by gradient descent from a random start.
+\end{remark}
+
+Expressivity has a price. A network may need very many units to represent a given function, the weights that represent it may be hard to find, and a model that can fit anything can also overfit. For polynomial features this concern led to the $L^2$ penalty of ridge regression; for neural networks the remedies are discussed in \cref{sec:nn-training}.
+
+\section{Backpropagation}\label{sec:backprop}
+
+Training by gradient descent requires the gradient of the loss with respect to every weight in every layer. Backpropagation computes all of them at a cost comparable to evaluating the network once. It is the chain rule, organized so that no intermediate derivative is computed twice.
+
+\subsection{Computation Graphs and Error Signals}
+
+Consider the simplest case, a single logistic unit with squared loss (``logistic least squares''):
+\[
+z=wx+b,\qquad \hat y=\sigma(z),\qquad L=\tfrac12(\hat y-y)^2 .
+\]
+The \emph{computation graph} has a node for each input and each computed quantity, and an edge from every quantity to those computed directly from it: $x,w,b\to z\to\hat y\to L$, with $y\to L$. By the univariate chain rule,
+\[
+\frac{\partial L}{\partial w}=\frac{\partial L}{\partial\hat y}\frac{\partial\hat y}{\partial z}\frac{\partial z}{\partial w}=(\hat y-y)\,\sigma'(z)\,x,\qquad
+\frac{\partial L}{\partial b}=(\hat y-y)\,\sigma'(z)\cdot1 .
+\]
+The two gradients share the factor $(\hat y-y)\sigma'(z)=\partial L/\partial z$, and computing it once is the whole idea. Write $\bar v=\partial L/\partial v$ for the \emph{error signal} of a node $v$; it is a number the program computes, not a new mathematical operation. Going backward through the graph,
+\[
+\overline{\hat y}=\hat y-y,\qquad \bar z=\overline{\hat y}\,\sigma'(z),\qquad \bar w=\bar z\,x,\qquad \bar b=\bar z .
+\]
+
+When a node feeds several others (\emph{fan-out} greater than one), its error signal collects contributions from all of them, by the multivariate chain rule $\frac{\dd}{\dd t}f(u(t),v(t))=\frac{\partial f}{\partial u}\frac{\dd u}{\dd t}+\frac{\partial f}{\partial v}\frac{\dd v}{\dd t}$. In $L^2$-regularized logistic least squares, $L_{\mathrm{reg}}=L+\lambda R$ with $R=\frac12w^2$, the weight $w$ feeds both $z$ and $R$, so
+\[
+\bar L=1,\quad \bar R=\lambda,\quad \overline{\hat y}=\bar L\,(\hat y-y),\quad \bar z=\overline{\hat y}\,\sigma'(z),\quad \bar w=\bar z\,x+\bar R\,w,\quad \bar b=\bar z .
+\]
+Softmax regression is another example: each logit $z_m$ affects every output $\hat y_k=e^{z_k}/\sum_je^{z_j}$, so $\bar z_m$ is a sum over $k$.
+
+\subsection{The Algorithm}
+
+\begin{algorithm}[H]
+\caption{Backpropagation (Reverse-Mode Differentiation)}\label{alg:backprop}
+\begin{algorithmic}[1]
+\Input{A computation graph with nodes $v_1,\dots,v_N$ ordered so that parents come before children, inputs and parameters among the first nodes, and the scalar loss $v_N=L$.}
+\Statex \textbf{Forward pass:}
+\For{$i=1,\dots,N$}
+  \State Compute $v_i$ as a function of its parents; store it.
+\EndFor
+\Statex \textbf{Backward pass:}
+\State $\bar v_N\gets1$
+\For{$i=N-1,\dots,1$}
+  \State $\bar v_i\gets\sum_{j\in\mathrm{Children}(v_i)}\bar v_j\,\partial v_j/\partial v_i$ \Comment{local derivatives use stored values}
+\EndFor
+\Output{$\bar v_i=\partial L/\partial v_i$ for every node, in particular for every parameter.}
+\end{algorithmic}
+\end{algorithm}
+
+The order of the backward loop guarantees that when $\bar v_i$ is computed, the error signals of all its children are already known. Each local derivative $\partial v_j/\partial v_i$ involves only the values stored in the forward pass. For vector-valued nodes the product becomes a vector--Jacobian product, $\bar v_i=\sum_j(\partial v_j/\partial v_i)\T\bar v_j$.
+
+For the two-layer network of \cref{fig:two-layer-net} with squared loss, the passes in vectorized form are
+\[
+\begin{array}{@{}l@{\qquad\qquad}l@{}}
+\text{Forward pass} & \text{Backward pass}\\[2pt]
+z=W^{(1)}x+b^{(1)} & \overline{\hat y}=\hat y-y \\
+h=\sigma(z) & \bar W^{(2)}=\overline{\hat y}\,h\T,\quad \bar b^{(2)}=\overline{\hat y} \\
+\hat y=W^{(2)}h+b^{(2)} & \bar h=W^{(2)\top}\overline{\hat y} \\
+L=\tfrac12\norm{y-\hat y}^2 & \bar z=\bar h\circ\sigma'(z) \\
+ & \bar W^{(1)}=\bar z\,x\T,\quad \bar b^{(1)}=\bar z
+\end{array}
+\]
+where $\circ$ is the componentwise product. The pattern is general: the gradient of a weight matrix is the outer product of the error signal at its output and the activation at its input, and error signals travel backward through the transposed weights.
+
+\begin{remark}[Cost]
+The forward pass costs about one multiply--add per weight ($z_i=\sum_jW_{ij}x_j+b_i$). The backward pass costs about two per weight: one for $\bar W=\overline{\hat y}\,h\T$ and one for $\bar h=W\T\overline{\hat y}$. So one backward pass is about as expensive as two forward passes, regardless of the number of parameters. Approximating the gradient by finite differences would instead require one forward pass per parameter, which is hopeless for millions of weights.
+\end{remark}
+
+\begin{remark}[Connection to Variable Elimination]
+Computation graphs are directed acyclic graphs, like the Bayesian networks of \cref{ch:pgm}. Backpropagation is dynamic programming on such a graph: the derivative of $L$ with respect to $v_i$ is a sum over all paths from $v_i$ to $L$ of products of local derivatives, and the backward pass computes this sum without enumerating the paths, by reusing the error signals of the children. Variable elimination (\cref{sec:ve}) evaluates sums of products over a graph by the same principle, caching intermediate factors instead of error signals.
+\end{remark}
+
+Modern libraries such as PyTorch, TensorFlow, and JAX perform this procedure automatically (\emph{automatic differentiation}): the program records the computation graph during the forward pass and runs \cref{alg:backprop} on request. Even optimizers more sophisticated than gradient descent rely on backpropagation for their gradients.
+
+\section{Training Neural Networks}\label{sec:nn-training}
+
+Training minimizes the average loss over the training data, possibly plus a penalty,
+\[
+J(\theta)=\frac1n\sum_{i=1}^nL\big(y_i,f_\theta(x_i)\big)+\lambda \Omega(\theta),
+\]
+where $\theta$ collects all weights and biases. For regression $L$ is usually the squared error; for classification it is the cross-entropy $-\sum_ky_k\log\hat y_k$ with one-hot targets, which is the negative log-likelihood of the categorical model, so minimizing $J$ with $\lambda=0$ is maximum likelihood (\cref{sec:mle}). With a sigmoid or softmax output and the cross-entropy, the error signal at the logits takes the simple form $\bar z=\hat y-y$, exactly as in the gradient of logistic regression.
+
+Unlike the losses of linear and logistic regression, $J$ is not convex in $\theta$: it has many local minima and saddle points, and permuting the hidden units of a layer gives an equivalent network. Gradient descent can therefore only be expected to find a good local minimum. Stochastic gradient descent (\cref{sec:sgd}) is the method of choice, both because each step is cheap and because its noise helps the iterates escape poor minima and settle in favorable regions.
+
+Overfitting in neural networks is not fully understood, but two remedies are standard. An $L^2$ penalty $\Omega(\theta)=\frac12\norm{\theta}^2$ (\emph{weight decay}) shrinks the weights as in ridge regression (\cref{sec:ridge}). \emph{Early stopping} monitors the error on a validation set (\cref{sec:cv}) and stops when it starts to increase, since overfitting typically grows as training proceeds.
+
+\begin{algorithm}[H]
+\caption{Training a Neural Network with Minibatch SGD and Early Stopping}\label{alg:nn-training}
+\begin{algorithmic}[1]
+\Input{Training and validation data, network $f_\theta$, loss $L$, penalty weight $\lambda$, learning rate $\eta$, minibatch size $B$, maximum number of epochs $E$, patience $P$.}
+\Init{Small random weights $\theta$; $\theta_{\mathrm{best}}\gets\theta$; best validation error $e_{\mathrm{best}}\gets\infty$.}
+\For{$\mathrm{epoch}=1,\dots,E$}
+  \State Shuffle the training data and split it into minibatches of size $B$.
+  \For{each minibatch $S$}
+    \State Forward pass: $J_S(\theta)=\frac1{|S|}\sum_{i\in S}L\big(y_i,f_\theta(x_i)\big)+\lambda \Omega(\theta)$.
+    \State Backward pass: $g\gets\nabla_\theta J_S(\theta)$ by \cref{alg:backprop}.
+    \State $\theta\gets\theta-\eta\,g$ \Comment{in practice often Adam or momentum}
+  \EndFor
+  \State Compute the validation error $e$ of $f_\theta$.
+  \If{$e<e_{\mathrm{best}}$}
+    \State $e_{\mathrm{best}}\gets e$; $\theta_{\mathrm{best}}\gets\theta$
+  \EndIf
+  \If{$e_{\mathrm{best}}$ has not improved for $P$ epochs}
+    \State \textbf{stop} \Comment{early stopping}
+  \EndIf
+\EndFor
+\Output{The network $f_{\theta_{\mathrm{best}}}$.}
+\end{algorithmic}
+\end{algorithm}
+
+This is \cref{alg:sgd} with the gradient supplied by backpropagation. The weights are initialized randomly rather than at zero: if all hidden units started equal, they would receive identical gradients and remain identical forever.
+
+\begin{notebox}{Pros and Cons}
+Neural networks learn features directly from raw data, scale to very large data sets through minibatch SGD, and, thanks to automatic differentiation, can be assembled from modular layers for almost any input and output. However, training is non-convex and sensitive to initialization, learning rate, and architecture; the models need a lot of data; and the learned function is hard to interpret.
+\end{notebox}
+
+\begin{notebox}{Limitations and what comes next}
+Like every method in \cref{part:prediction}, a neural network as used here returns a point prediction $f_\theta(x)$ for a single response. It does not describe uncertainty, it does not model the relations among many variables, and it cannot generate new data. \Cref{part:probabilistic} changes the question from predicting $y$ given $x$ to modeling a joint distribution, beginning with graphical models in \cref{ch:pgm}. Neural networks return later as components of probabilistic models: as the encoder and decoder of variational autoencoders (\cref{sec:vae}), as transformers (\cref{sec:transformer}), and as the denoisers of diffusion models (\cref{ch:diffusion}).
+\end{notebox}

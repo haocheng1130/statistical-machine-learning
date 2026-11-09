@@ -1,0 +1,188 @@
+\chapter{Support Vector Machines}\label{ch:svm}
+
+The classifiers of \cref{ch:classification} draw linear decision boundaries, but they arrive at them indirectly, through a probability model fitted by likelihood. The support vector machine (SVM) asks for the separating hyperplane directly and selects it by a geometric criterion: among all hyperplanes that separate the classes, take the one that stays farthest from the data. \Cref{sec:separating-hyperplanes} sets up the geometry, \cref{sec:hard-margin} solves the separable case, and \cref{sec:soft-margin} relaxes it to overlapping classes. \Cref{sec:hinge} shows that the result is a regularized loss minimization problem of the same type as ridge regression and logistic regression, differing only in the loss, and \cref{sec:svm-comparison} compares the three linear classifiers. Throughout this chapter the labels are coded as $y\in\{-1,+1\}$, which makes the formulas symmetric in the two classes.
+
+\section{Separating Hyperplanes}\label{sec:separating-hyperplanes}
+
+Logistic regression predicts class $1$ when $\beta_0+\beta\T x\ge0$, and binary LDA (\cref{sec:lr-vs-lda}) also compares an affine function of $x$ with zero. Both are \emph{linear classifiers} of the form
+\[
+\hat y(x)=\sign\big(f(x)\big),\qquad f(x)=\beta_0+\beta\T x,
+\]
+with decision boundary the \emph{hyperplane} $\{x\in\R^p:\beta_0+\beta\T x=0\}$, a $(p-1)$-dimensional affine subspace. The vector $\beta$ is orthogonal to the hyperplane: if $x_1,x_2$ both lie on it, then $\beta\T(x_1-x_2)=0$. A point is classified correctly exactly when $y\,f(x)>0$, so the quantity $y_if(x_i)$ measures how well the $i$-th observation is classified; it is called the \emph{functional margin}.
+
+A first attempt is to look for $(\beta_0,\beta)$ with $\sign(\beta_0+\beta\T x_i)=y_i$ for all $i$. This has two defects. If the data are linearly separable, there are infinitely many such hyperplanes, and some pass very close to the observations, which suggests poor generalization. If the data are not separable, there is no solution at all. The maximal margin principle addresses the first problem, slack variables the second.
+
+\begin{proposition}[Distance to a Hyperplane]\label{prop:hyperplane-distance}
+The Euclidean distance from a point $x'$ to the hyperplane $\{x:\beta_0+\beta\T x=0\}$ is
+\[
+\frac{|\beta_0+\beta\T x'|}{\norm{\beta}}.
+\]
+\end{proposition}
+
+The closest point $x_{\mathrm{proj}}$ on the hyperplane differs from $x'$ by a multiple of the unit normal $\beta/\norm\beta$, and $\beta_0+\beta\T x_{\mathrm{proj}}=0$, so the distance is $|(x'-x_{\mathrm{proj}})\T\beta|/\norm\beta=|\beta\T x'+\beta_0|/\norm\beta$. For a correctly classified point this equals $y\,f(x')/\norm\beta$, the functional margin divided by $\norm\beta$, which is called the \emph{geometric margin}.
+
+\section{The Maximal Margin Classifier}\label{sec:hard-margin}
+
+Suppose the data are separable. We require every point to be classified correctly with some room to spare,
+\[
+y_i(\beta_0+\beta\T x_i)\ge M,\qquad i=1,\dots,n,
+\]
+for some $M>0$; these are the \emph{margin constraints}. By \cref{prop:hyperplane-distance}, every point is then at distance at least $M/\norm\beta$ from the hyperplane, and we want this distance, the \emph{margin}, to be as large as possible. The pair $(\beta_0,\beta)$ is only determined up to a positive factor, since multiplying it by $c>0$ changes neither the hyperplane nor the classifier but multiplies the functional margins by $c$. We may therefore fix the scale by setting $M=1$. The two parallel hyperplanes $\beta_0+\beta\T x=\pm1$ then bound a slab of width $2/\norm\beta$ that contains no data points, and maximizing this width is the same as minimizing $\norm\beta^2$.
+
+\begin{definition}[Hard-Margin SVM]\label{def:hard-margin-svm}
+The \emph{maximal margin classifier} or \emph{hard-margin SVM} is $\hat y(x)=\sign(\hat\beta_0+\hat\beta\T x)$, where $(\hat\beta_0,\hat\beta)$ solves
+\[
+\min_{\beta_0,\beta}\ \tfrac12\norm{\beta}^2\qquad\text{subject to}\qquad y_i(\beta_0+\beta\T x_i)\ge1,\quad i=1,\dots,n.
+\]
+The observations with $y_i(\hat\beta_0+\hat\beta\T x_i)=1$, which lie on the boundary of the slab, are the \emph{support vectors}.
+\end{definition}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[scale=1.15,
+  pospt/.style={circle, fill=black, inner sep=1.6pt},
+  negpt/.style={circle, draw=black, fill=white, inner sep=1.6pt},
+  sv/.style={circle, draw=boxblue, thick, inner sep=3.6pt}]
+\begin{scope}
+\clip (-0.3,-0.3) rectangle (4.2,4.0);
+\draw[thick] (-1,4) -- (4,-1);
+\draw[dashed] (-1,5) -- (5,-1);
+\draw[dashed] (-1,3) -- (3,-1);
+\end{scope}
+\foreach \p in {(2.4,1.6),(3.0,2.0),(2.5,2.6),(3.4,1.3),(1.9,2.9),(3.3,3.0)} \node[pospt] at \p {};
+\foreach \p in {(1.2,0.8),(0.5,1.0),(1.9,0.1),(0.3,0.4),(0.1,1.4)} \node[negpt] at \p {};
+\node[sv] at (2.4,1.6) {};
+\node[sv] at (1.2,0.8) {};
+\node[sv] at (1.9,0.1) {};
+\draw[{Stealth[length=2mm]}-{Stealth[length=2mm]}, boxblue] (1.5,0.5) -- (2.5,1.5);
+\node[font=\small, boxblue, right] at (2.05,0.85) {$2/\norm{\beta}$};
+\node[font=\scriptsize, above] at (0,4.0) {$f(x)=1$};
+\node[font=\scriptsize, left] at (-0.3,3.3) {$f(x)=0$};
+\node[font=\scriptsize, left] at (-0.3,2.3) {$f(x)=-1$};
+\end{tikzpicture}
+\caption{The maximal margin hyperplane $f(x)=\beta_0+\beta\T x=0$ (solid) and the margin boundaries $f(x)=\pm1$ (dashed). Filled points have $y=+1$, open points $y=-1$; the circled points are support vectors. Moving any other point slightly does not change the solution.}
+\label{fig:svm-margin}
+\end{figure}
+
+The problem is a convex quadratic program: a convex quadratic objective with linear constraints, so it has a unique solution that standard solvers find efficiently. Its solution depends only on the support vectors. If the constraint of observation $i$ is not tight, removing $x_i$ from the training set leaves the optimal hyperplane unchanged (this can be made rigorous with the Karush--Kuhn--Tucker conditions). The classifier is thus determined by the few points that are hardest to classify, which explains the name.
+
+\section{The Soft-Margin SVM}\label{sec:soft-margin}
+
+When the classes overlap, no hyperplane satisfies all margin constraints. We allow violations through \emph{slack variables} $\zeta_i\ge0$ and relax the constraints to $y_i(\beta_0+\beta\T x_i)\ge1-\zeta_i$. The value of $\zeta_i$ records where observation $i$ lies: $\zeta_i=0$ if it is on the correct side of the slab, $0<\zeta_i\le1$ if it is inside the slab but still correctly classified, and $\zeta_i>1$ if it is misclassified.
+
+\begin{definition}[Soft-Margin SVM]\label{def:soft-margin-svm}
+For a budget $B\ge0$, the \emph{soft-margin SVM} solves
+\[
+\min_{\beta_0,\beta,\zeta}\ \tfrac12\norm\beta^2\quad\text{subject to}\quad y_i(\beta_0+\beta\T x_i)\ge1-\zeta_i,\quad\zeta_i\ge0,\quad\sum_{i=1}^n\zeta_i\le B.
+\]
+Equivalently, for a cost parameter $C>0$ that corresponds to $B$,
+\begin{equation}\label{eq:svm-penalized}
+\min_{\beta_0,\beta,\zeta}\ \tfrac12\norm\beta^2+C\sum_{i=1}^n\zeta_i\quad\text{subject to}\quad y_i(\beta_0+\beta\T x_i)\ge1-\zeta_i,\quad\zeta_i\ge0.
+\end{equation}
+\end{definition}
+
+Since every misclassified point has $\zeta_i>1$, the budget bounds the number of training errors by $B$; $B=0$ recovers the hard margin. (The lectures call the budget $K$; we write $B$ to avoid a clash with the number of classes.) The tuning parameter controls a bias--variance trade-off (\cref{sec:bias-variance}). A large $C$ (small $B$) tolerates few violations, gives a narrow margin determined by few support vectors, and has low bias but high variance; a small $C$ gives a wide margin with many support vectors, which is more stable. In practice $C$ is chosen by cross-validation (\cref{sec:cv}). The support vectors are now all observations with $\zeta_i>0$ or on the margin boundary.
+
+\begin{proposition}[Dual Problem]\label{prop:svm-dual}
+The solution of \eqref{eq:svm-penalized} has the form $\hat\beta=\sum_{i=1}^n\hat\alpha_iy_ix_i$, where $\hat\alpha$ solves the dual problem
+\[
+\max_{\alpha}\ \sum_{i=1}^n\alpha_i-\frac12\sum_{i=1}^n\sum_{j=1}^n\alpha_i\alpha_jy_iy_j\,x_i\T x_j\quad\text{subject to}\quad\sum_{i=1}^n\alpha_iy_i=0,\quad0\le\alpha_i\le C.
+\]
+Moreover $\hat\alpha_i>0$ only for support vectors, and the fitted decision function is
+\[
+\hat f(x)=\hat\beta_0+\sum_{i\in\mathcal S}\hat\alpha_iy_i\,x_i\T x,\qquad\mathcal S=\{i:\hat\alpha_i>0\}.
+\]
+\end{proposition}
+
+The dual is obtained from the Lagrangian of \eqref{eq:svm-penalized}, with one multiplier $\alpha_i$ per margin constraint, by minimizing over $(\beta_0,\beta,\zeta)$; the hard margin corresponds to $C=\infty$. Two features of the dual matter for what follows. First, the data enter only through the inner products $x_i\T x_j$ and $x_i\T x$. Second, the decision function is a weighted sum over the support vectors only, which is usually a small subset of the data.
+
+\begin{remark}[Constants in Tutorial 8]
+Tutorial~8 writes the dual objective with a factor $\frac14$ instead of $\frac12$. That factor is what one obtains from the primal objective $\norm\beta^2$ without the $\frac12$, as in the lecture slides; with the $\frac12\norm\beta^2$ written in the tutorial's own Lagrangian the factor is $\frac12$. Rescaling the objective changes the multipliers by a constant but not the classifier.
+\end{remark}
+
+\section{The Hinge-Loss View}\label{sec:hinge}
+
+The slack variables can be eliminated. For fixed $(\beta_0,\beta)$, the smallest admissible $\zeta_i$ is $\max\{0,1-y_if(x_i)\}$. Substituting this into \eqref{eq:svm-penalized} and dividing by $nC$ shows that the soft-margin SVM solves
+\begin{equation}\label{eq:svm-hinge}
+\min_{\beta_0,\beta}\ \frac1n\sum_{i=1}^n\max\big\{0,\,1-y_i(\beta_0+\beta\T x_i)\big\}+\lambda\norm{\beta}^2,\qquad\lambda=\frac1{2nC}.
+\end{equation}
+(The lectures put $\norm\beta^2$ instead of $\frac12\norm\beta^2$ in the primal, which gives $\lambda=1/(nC)$.) The first term is the average \emph{hinge loss} $L_{\mathrm{hinge}}(y,f)=\max\{0,1-yf\}$, the second a ridge penalty. So the SVM is a linear classifier fitted by penalized empirical risk minimization, with the same penalty as ridge regression (\cref{sec:ridge}) and only a different loss. The hinge loss is zero when $yf(x)\ge1$ (correct and outside the margin), positive but below one when $0<yf(x)<1$ (correct but inside the margin), and larger than one for a misclassified point.
+
+\begin{remark}[Comparing Classification Losses]\label{rem:loss-comparison}
+Each linear classifier we have met minimizes, possibly with a penalty, an average of a loss that depends on the data only through the margin $m=yf(x)$, with $y\in\{-1,+1\}$.
+\begin{itemize}[nosep]
+  \item The \emph{0-1 loss} $\ind\{m<0\}$ is the error rate we care about, but it is discontinuous and non-convex, and minimizing it over hyperplanes is computationally hard.
+  \item The \emph{hinge loss} $\max\{0,1-m\}$ of the SVM is a convex upper bound on the 0-1 loss; it is exactly zero for confidently correct points, which is why only the support vectors matter.
+  \item The \emph{logistic loss} $\log(1+e^{-m})$ is the negative log-likelihood of logistic regression (\cref{sec:logistic}) rewritten for $y\in\{-1,+1\}$, since $\Prob(Y=y\given x)=\sigma(yf(x))$. It is smooth and never exactly zero, so every point influences the fit, and its minimizer estimates the log-odds.
+  \item The \emph{squared loss} $(1-m)^2=(y-f(x))^2$ corresponds to least squares on the $\pm1$ labels; it also penalizes points that are classified correctly with a large margin.
+\end{itemize}
+\end{remark}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[xscale=1.25, yscale=0.85]
+\draw[-{Stealth[length=2mm]}] (-2.2,0) -- (3.3,0) node[right] {$m=yf(x)$};
+\draw[-{Stealth[length=2mm]}] (0,-0.2) -- (0,4.3) node[above] {loss};
+\foreach \x in {-2,-1,1,2,3} \draw (\x,0.06) -- (\x,-0.06) node[below, font=\scriptsize] {$\x$};
+\foreach \y in {1,2,3,4} \draw (0.05,\y) -- (-0.05,\y) node[left, font=\scriptsize] {$\y$};
+\draw[very thick, black] (-2,1) -- (0,1); \draw[very thick, black] (0,0) -- (3,0);
+\draw[thick, boxblue] (-2,3) -- (1,0) -- (3,0);
+\draw[thick, red!70!black, dashed] plot[domain=-2:3, samples=60] (\x,{ln(1+exp(-\x))/ln(2)});
+\draw[thick, green!45!black, dotted] plot[domain=-1:3, samples=60] (\x,{(1-\x)^2});
+\draw[very thick, black] (3.9,3.6) -- (4.25,3.6); \node[font=\scriptsize, anchor=west] at (4.3,3.6) {0-1 loss};
+\draw[thick, boxblue] (3.9,3.1) -- (4.25,3.1); \node[font=\scriptsize, anchor=west] at (4.3,3.1) {hinge};
+\draw[thick, red!70!black, dashed] (3.9,2.6) -- (4.25,2.6); \node[font=\scriptsize, anchor=west] at (4.3,2.6) {logistic (base 2)};
+\draw[thick, green!45!black, dotted] (3.9,2.1) -- (4.25,2.1); \node[font=\scriptsize, anchor=west] at (4.3,2.1) {squared};
+\end{tikzpicture}
+\caption{Classification losses as functions of the margin $m=yf(x)$. The logistic loss is drawn in base $2$ so that it passes through $(0,1)$; this rescaling does not change its minimizer.}
+\label{fig:class-losses}
+\end{figure}
+
+The hinge-loss form \eqref{eq:svm-hinge} is an unconstrained convex problem, so it can be solved by gradient methods, as the lectures point out. The hinge loss is not differentiable at $m=1$, but it has a \emph{subgradient}: $-yx$ (and $-y$ for $\beta_0$) when $m<1$, and $0$ when $m>1$; at the kink either choice works. Subgradient descent replaces the gradient of \cref{alg:gd} by a subgradient.
+
+\begin{algorithm}[H]
+\caption{Linear SVM by Subgradient Descent}\label{alg:svm-subgradient}
+\begin{algorithmic}[1]
+\Input{Data $\{(x_i,y_i)\}_{i=1}^n$ with $y_i\in\{-1,+1\}$; penalty $\lambda>0$; step sizes $\eta_t$; number of iterations $T$.}
+\Init{$\beta\gets0$, $\beta_0\gets0$.}
+\For{$t=1,\dots,T$}
+  \State $\mathcal V\gets\{i:y_i(\beta_0+\beta\T x_i)<1\}$ \Comment{points violating the margin}
+  \State $g\gets2\lambda\beta-\frac1n\sum_{i\in\mathcal V}y_ix_i$; \quad $g_0\gets-\frac1n\sum_{i\in\mathcal V}y_i$ \Comment{subgradient of \eqref{eq:svm-hinge}}
+  \State $\beta\gets\beta-\eta_t\,g$; \quad $\beta_0\gets\beta_0-\eta_t\,g_0$
+\EndFor
+\Output{Classifier $\hat y(x)=\sign(\beta_0+\beta\T x)$.}
+\end{algorithmic}
+\end{algorithm}
+
+Only the observations currently inside the margin or misclassified contribute to the update, mirroring the role of the support vectors; the penalty term shrinks $\beta$ toward zero in every step, which widens the margin. Because a subgradient does not vanish near the optimum, the step sizes must decrease, typically like $\eta_t\propto1/t$. Restricting lines~2--3 to a single random observation or a minibatch instead of all $n$ gives the stochastic version (\cref{alg:sgd}). For moderate $n$, or when kernels are used (\cref{ch:kernels}), the dual quadratic program of \cref{prop:svm-dual} is usually solved instead.
+
+\section{Limitations and Comparison}\label{sec:svm-comparison}
+
+The SVM outputs only a label $\sign(\hat f(x))$. The score $\hat f(x)$ can be used for ranking and ROC curves (\cref{sec:classifier-eval}), but it is not a probability, so the SVM does not estimate $\Prob(Y=1\given X=x)$ and cannot be used directly with cost-sensitive thresholds as in \cref{rem:threshold-cost}. The notion of a margin also does not extend naturally to $K>2$ classes. The usual workarounds combine binary SVMs, either one-versus-one (fit an SVM for every pair of classes and take a majority vote) or one-versus-all (fit $K$ SVMs, each separating one class from the rest, and pick the class with the largest score).
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+ & Logistic regression & LDA & SVM \\
+\midrule
+Loss / criterion & logistic loss (conditional likelihood) & joint Gaussian likelihood & hinge loss + ridge penalty \\
+Probabilities & yes & yes & no \\
+Assumptions on $X$ & none & Gaussian, common $\Sigma$ & none \\
+Influential points & all, smoothly weighted & all, through means and $\Sigma$ & support vectors only \\
+(Nearly) separable classes & unstable & good & good \\
+Overlapping classes & similar to SVM (with ridge penalty) & good if Gaussian & similar to penalized LR \\
+Multi-class & softmax extension & natural & ad hoc combinations \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+In essence the SVM is closer to logistic regression than to LDA: both are discriminative and differ only in the loss, and the two losses behave similarly for misclassified points (\cref{fig:class-losses}). When the classes are nearly separable, the SVM and LDA tend to do better than unpenalized logistic regression; when Gaussianity is justified, LDA is best.
+
+\begin{notebox}{Pros and Cons}
+The SVM has a clear geometric motivation, a convex training problem with a unique solution, and a sparse solution that depends only on the support vectors, which makes it robust to points far from the boundary. Its dual depends on the data only through inner products, which is the gateway to kernels. On the other hand, it gives no class probabilities, it needs ad hoc extensions for more than two classes, its cost parameter $C$ must be tuned, and the dual quadratic program becomes expensive for very large $n$.
+\end{notebox}
+
+\begin{notebox}{Limitations and what comes next}
+A linear SVM still draws a hyperplane, and many problems need curved boundaries. Tutorial~8 gives a simple example: two classes arranged as an inner disk and a surrounding ring cannot be separated by a line in $\R^2$, but after the feature map $\phi(a,b)=(a,b,a^2+b^2)$ they are separated by a plane in $\R^3$. Running the SVM on $\phi(x_i)$ only requires the inner products $\phi(x_i)\T\phi(x_j)$ in the dual of \cref{prop:svm-dual}. \Cref{ch:kernels} shows that these can be computed without ever forming $\phi$, even when the feature space is infinite-dimensional, and that the same trick applies to ridge regression and leads to Gaussian processes.
+\end{notebox}

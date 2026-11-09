@@ -1,0 +1,329 @@
+\chapter{Monte Carlo and Markov Chain Monte Carlo}\label{ch:mcmc}
+
+Exact inference (\cref{ch:inference}) is exponential in the size of the largest factor and breaks down for continuous variables without conjugate structure. This chapter takes a different route: instead of computing a posterior exactly, we draw random samples from it and approximate every quantity of interest by an average over the samples. \Cref{sec:sampling-intro} formulates the two problems that sampling solves and introduces the TrueSkill model as a running example. \Cref{sec:mc-estimation} covers simple Monte Carlo estimation and ancestral sampling in directed models. \Cref{sec:importance-sampling,sec:rejection-sampling} present importance and rejection sampling, which work with unnormalized densities but need a good proposal distribution, a requirement that fails in high dimensions. Markov chain Monte Carlo removes this requirement by building a Markov chain whose stationary distribution is the target: after the background on Markov chains in \cref{sec:markov-chains}, \cref{sec:mh,sec:gibbs,sec:hmc} present Metropolis--Hastings, Gibbs sampling, and Hamiltonian Monte Carlo, and \cref{sec:mcmc-diagnostics} discusses how to tell whether a chain has run long enough.
+
+\section{Sampling for Approximate Inference}\label{sec:sampling-intro}
+
+A \emph{sample} from a distribution $p(x)$ is a realization of a random variable with distribution $p$; $x$ may be a scalar or high-dimensional. Monte Carlo methods address two problems:
+\begin{enumerate}[(1)]
+  \item \emph{Sampling:} generate samples $x^{(1)},\dots,x^{(S)}$ from a given distribution $p$.
+  \item \emph{Estimation:} compute expectations $\Phi=\E_{x\sim p}[\varphi(x)]=\int\varphi(x)p(x)\dd x$ of a \emph{test function} $\varphi$.
+\end{enumerate}
+Solving the first solves the second. Many quantities are expectations: the mean of $f(x)$ uses $\varphi=f$, the variance uses $\varphi_1=f$ and $\varphi_2=f^2$ through $\Var(f(x))=\E[\varphi_2]-\E[\varphi_1]^2$, and a probability $\Prob(x\in A)$ uses $\varphi=\ind_A$.
+
+In inference the target is a posterior, which is known only up to a constant. We therefore assume that we can evaluate an \emph{unnormalized density} $\tilde p$ with
+\[
+p(x)=\frac{\tilde p(x)}{Z},\qquad Z=\int\tilde p(x)\dd x.
+\]
+For a posterior $p(z\given x)\propto p(z)p(x\given z)$, the unnormalized density is the joint $\tilde p(z)=p(z,x)$ and $Z=p(x)$ is the evidence. There are two difficulties. The constant $Z$ is a high-dimensional integral that is usually intractable; and even if $Z$ were known, drawing samples from $p$ in high dimensions would remain hard. Discretizing space does not help: $50$ grid points per coordinate in $D=1000$ dimensions give $50^{1000}$ points. MacKay's analogy makes the difficulty concrete. Think of $\tilde p(x)$ as the depth of a lake at location $x$ and $\varphi(x)$ as the plankton concentration; then $Z$ is the volume of the lake and $\Phi=\frac1Z\int\varphi\tilde p$ is the average concentration. We can measure depth and concentration at any point we visit, but to estimate $\Phi$ correctly a method must discover the deep canyons and their volume relative to the rest of the lake.
+
+\subsubsection{Running Example: TrueSkill}
+
+TrueSkill is a rating system for competitive games. Each of $N$ players has an unknown skill $z_i\in\R$ with independent prior $z_i\sim\cN(0,1)$. In a game between players $i$ and $j$,
+\[
+p(i\text{ beats }j\given z_i,z_j)=\sigma(z_i-z_j),\qquad\sigma(y)=\frac1{1+e^{-y}},
+\]
+the same logistic link as in logistic regression (\cref{sec:logistic}), and games are independent given the skills. If game $g$ was won by $w_g$ and lost by $\ell_g$, the posterior over skills is
+\begin{gather*}
+p(z\given\text{games})\propto\tilde p(z)=\prod_{i=1}^N\cN(z_i;0,1)\prod_{g}\sigma\big(z_{w_g}-z_{\ell_g}\big),\\
+\log\tilde p(z)=-\tfrac12\norm{z}^2+\sum_g\log\sigma\big(z_{w_g}-z_{\ell_g}\big)+\text{const}.
+\end{gather*}
+The unnormalized log posterior and its gradient are cheap to evaluate, but the evidence is an $N$-dimensional integral, and so is every marginal such as $p(z_1\given\text{games})$. After observing games, skills are no longer independent, even for players who never met. With two players, the posterior after $A$ beats $B$ ten times is confident that $z_A>z_B$; after each beats the other ten times it is confident that the skills are similar but uncertain about their common level, so its mass is stretched along the diagonal $z_A=z_B$. The posterior is not Gaussian, and conjugate Gaussian computations (\cref{sec:gaussian}) do not apply.
+
+\section{Monte Carlo Estimation and Ancestral Sampling}\label{sec:mc-estimation}
+
+Given independent samples $x^{(1)},\dots,x^{(S)}\sim p$, the \emph{simple Monte Carlo estimator} of $\Phi=\E_p[\varphi(x)]$ is the sample average
+\[
+\hat\Phi=\frac1S\sum_{s=1}^S\varphi\big(x^{(s)}\big).
+\]
+
+\begin{proposition}[Simple Monte Carlo]\label{prop:simple-mc}
+If $x^{(1)},\dots,x^{(S)}$ are i.i.d.\ from $p$ and $\Var_p(\varphi(x))<\infty$, then
+\[
+\E[\hat\Phi]=\Phi,\qquad\Var(\hat\Phi)=\frac1S\Var_p\big(\varphi(x)\big),
+\]
+and $\hat\Phi\to\Phi$ almost surely as $S\to\infty$ by the law of large numbers.
+\end{proposition}
+
+The error is of order $\sqrt{\Var_p(\varphi)/S}$ whatever the dimension of $x$: the accuracy depends on the variance of $\varphi$, not on the number of coordinates. This is what makes Monte Carlo attractive in high dimensions, in contrast with the grid. The catch is that it presupposes independent samples from $p$, which is the hard part.
+
+\begin{remark}[Monte Carlo Elsewhere in These Notes]
+The same estimator appears throughout the course. A minibatch gradient in SGD (\cref{sec:sgd}) is a Monte Carlo estimate of the full gradient. The bootstrap (\cref{alg:bootstrap}) is Monte Carlo in which the unknown data distribution is replaced by the empirical distribution of the sample. Stochastic variational inference (\cref{sec:reparam}) estimates the gradient of its objective with Monte Carlo samples from the variational distribution.
+\end{remark}
+
+When the joint distribution is a directed graphical model and each conditional can be sampled, exact samples are easy to produce: sample the variables in a topological order, so that the parents of each node have already been drawn when the node is visited. This is \emph{ancestral sampling}; it is simply the factorization $p(x)=\prod_ip(x_i\given x_{\mathrm{pa}(i)})$ of \cref{sec:dag} read as a recipe.
+
+\begin{algorithm}[H]
+\caption{Ancestral Sampling}\label{alg:ancestral}
+\begin{algorithmic}[1]
+\Input{A DAG with nodes ordered topologically, $x_1,\dots,x_N$ (parents before children); samplers for each $p(x_i\given x_{\mathrm{pa}(i)})$; number of samples $S$.}
+\For{$s=1,\dots,S$}
+  \For{$i=1,\dots,N$}
+    \State Draw $x_i^{(s)}\sim p\big(x_i\given x^{(s)}_{\mathrm{pa}(i)}\big)$ \Comment{the parents are already sampled}
+  \EndFor
+\EndFor
+\Output{Independent samples $x^{(1)},\dots,x^{(S)}$ from the joint $p(x)$.}
+\end{algorithmic}
+\end{algorithm}
+
+For the DAG of the lectures with $p(x_{1:5})=p(x_1)p(x_2\given x_1)p(x_3\given x_1)p(x_4\given x_2,x_3)p(x_5\given x_3)$, one draws $x_1$, then $x_2$ and $x_3$, then $x_4$, and finally $x_5$. Generating data from a trained VAE (\cref{sec:vae}) or a diffusion model (\cref{alg:ddpm-sample}) is ancestral sampling in the same sense: first the latent variables, then the observations given them.
+
+Ancestral sampling produces samples from the joint, or from the prior, not from a posterior. If some variables are observed, one can sample from the prior and discard the samples that disagree with the evidence; this is correct but wasteful, since the fraction kept is $p(\bar x_E)$, which is tiny for improbable evidence. It is a special case of rejection sampling (\cref{sec:rejection-sampling}). Keeping every sample but weighting it by the probability of the evidence given its parents, $\prod_{e\in E}p(\bar x_e\given x_{\mathrm{pa}(e)})$, is a special case of importance sampling, to which we turn now.
+
+\section{Importance Sampling}\label{sec:importance-sampling}
+
+Suppose we cannot sample from $p=\tilde p/Z_p$ but can sample from a simpler \emph{proposal} $q=\tilde q/Z_q$, and can evaluate both $\tilde p$ and $\tilde q$. Samples from $q$ over-represent regions where $q>p$ and under-represent regions where $q<p$; importance sampling corrects this by weights. If both densities were normalized,
+\[
+\Phi=\int\varphi(x)\frac{p(x)}{q(x)}q(x)\dd x\approx\frac1S\sum_{s=1}^S\varphi\big(x^{(s)}\big)\frac{p(x^{(s)})}{q(x^{(s)})},\qquad x^{(s)}\iidsim q.
+\]
+With unnormalized densities, define $\tilde w_s=\tilde p(x^{(s)})/\tilde q(x^{(s)})$. Since $\E_q[\tilde p/\tilde q]=Z_p/Z_q$, the average of the $\tilde w_s$ estimates the unknown ratio of normalizing constants, and dividing by it gives an estimator that uses only $\tilde p$ and $\tilde q$.
+
+\begin{algorithm}[H]
+\caption{Importance Sampling (Self-Normalized)}\label{alg:importance-sampling}
+\begin{algorithmic}[1]
+\Input{Unnormalized target $\tilde p$; proposal $q$ that can be sampled, with unnormalized density $\tilde q$; test function $\varphi$; number of samples $S$.}
+\For{$s=1,\dots,S$}
+  \State Draw $x^{(s)}\sim q$.
+  \State $\tilde w_s\gets\tilde p(x^{(s)})\big/\tilde q(x^{(s)})$ \Comment{unnormalized importance weight}
+\EndFor
+\State $w_s\gets\tilde w_s\big/\sum_{r=1}^S\tilde w_r$ for $s=1,\dots,S$ \Comment{self-normalization}
+\Output{$\hat\Phi_{\mathrm{iw}}=\sum_{s=1}^Sw_s\,\varphi(x^{(s)})\approx\E_p[\varphi(x)]$, and $\frac1S\sum_s\tilde w_s\approx Z_p/Z_q$.}
+\end{algorithmic}
+\end{algorithm}
+
+The proposal must be positive wherever $p\varphi$ is nonzero (for the self-normalized estimator, wherever $p$ is nonzero). The self-normalized estimator is consistent but slightly biased for finite $S$, because it is a ratio of two averages. When $q$ is normalized ($Z_q=1$), the average weight estimates $Z_p$ itself, which for a posterior is the evidence $p(x)$. The variance is small only when $q$ is close to $p$: if $q$ has lighter tails than $p$, a few samples receive enormous weights. In high dimensions this is the typical situation, and almost all of the normalized weight concentrates on one or two samples.
+
+\section{Rejection Sampling}\label{sec:rejection-sampling}
+
+Rejection sampling produces exact samples from $p$, again from a proposal $q$, under the additional assumption that we know a constant $c$ with
+\[
+c\,\tilde q(x)\ge\tilde p(x)\qquad\text{for all }x.
+\]
+The idea is to draw points uniformly under the graph of $c\tilde q$ and keep those that also lie under the graph of $\tilde p$.
+
+\begin{algorithm}[H]
+\caption{Rejection Sampling}\label{alg:rejection}
+\begin{algorithmic}[1]
+\Input{Unnormalized target $\tilde p$; proposal $q$ with unnormalized density $\tilde q$; constant $c$ with $c\tilde q\ge\tilde p$; number of samples $S$.}
+\Init{An empty list of accepted samples.}
+\While{fewer than $S$ samples have been accepted}
+  \State Draw $x\sim q$ and then $u\sim\mathrm{Unif}\big[0,\,c\tilde q(x)\big]$.
+  \If{$u\le\tilde p(x)$}
+    \State Accept: append $x$ to the list. \Comment{otherwise discard $x$ and $u$}
+  \EndIf
+\EndWhile
+\Output{Independent samples $x^{(1)},\dots,x^{(S)}$ from $p$.}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{proposition}[Correctness and Acceptance Rate]\label{prop:rejection}
+The accepted samples are independent draws from $p$. Each proposal is accepted with probability
+\[
+\Prob(\text{accept})=\E_{x\sim q}\Big[\frac{\tilde p(x)}{c\tilde q(x)}\Big]=\frac{Z_p}{cZ_q}=\frac{\text{area under }\tilde p}{\text{area under }c\tilde q}.
+\]
+\end{proposition}
+
+Given $x$, acceptance has probability $\tilde p(x)/(c\tilde q(x))$, so the density of accepted points is proportional to $q(x)\tilde p(x)/(c\tilde q(x))\propto\tilde p(x)$; this is the content of the proposition. Its practical message is the acceptance rate. In high dimensions the envelope condition forces $c$ to be enormous: even for a Gaussian target and a Gaussian proposal whose standard deviation is only $1\%$ larger, $c=1.01^D\approx2\times10^4$ for $D=1000$. In general $c$, and hence the expected number of proposals per accepted sample, grows exponentially with the dimension. Finding a valid $c$ is itself hard when the location and height of the modes of $\tilde p$ are unknown.
+
+\begin{notebox}{Pros and Cons}
+Importance and rejection sampling need only an unnormalized target, are simple, and produce independent samples (weighted samples in the case of importance sampling); importance sampling also estimates normalizing constants. Both, however, depend on a proposal that resembles the target globally. In high dimensions no fixed proposal does, the importance weights degenerate, and the rejection rate approaches one.
+\end{notebox}
+
+\section{Markov Chains}\label{sec:markov-chains}
+
+The way out is to give up independence. Markov chain Monte Carlo generates a dependent sequence in which each sample is proposed near the previous one, so that the proposal only needs to be good locally. This section collects the facts about Markov chains that MCMC relies on. Markov chains as models of sequential data, together with higher-order chains and Markov language models, are discussed in \cref{ch:pgm}.
+
+A sequence $x_1,x_2,\dots$ is a (first-order) \emph{Markov chain} if $p(x_t\given x_{1:t-1})=p(x_t\given x_{t-1})$, so that $p(x_{1:T})=p(x_1)\prod_{t=2}^Tp(x_t\given x_{t-1})$. It is \emph{time-homogeneous} (the slides call it stationary) if the transition probabilities do not depend on $t$; we only consider such chains. For a finite state space $\{1,\dots,K\}$ the transitions form the \emph{transition matrix}
+\[
+A_{ij}=p(x_t=j\given x_{t-1}=i),\qquad\sum_jA_{ij}=1.
+\]
+The $n$-step transition probabilities are $A^n$ (the Chapman--Kolmogorov equations $A(m+n)=A(m)A(n)$). Writing $\pi_t(j)=p(x_t=j)$ as a column vector, the distribution evolves as $\pi_t=A\T\pi_{t-1}=(A\T)^t\pi_0$.
+
+\begin{definition}[Stationary Distribution, Detailed Balance]\label{def:stationary}
+A distribution $\pi$ is \emph{stationary} (invariant) for $A$ if $\pi=A\T\pi$, that is, $\sum_i\pi_iA_{ij}=\pi_j$ for all $j$. The chain satisfies \emph{detailed balance} with respect to $\pi$ if
+\[
+\pi_iA_{ij}=\pi_jA_{ji}\qquad\text{for all }i,j.
+\]
+For a general state space with transition kernel $T(x'\given x)$, the conditions read $\int p(x)T(x'\given x)\dd x=p(x')$ and $p(x)T(x'\given x)=p(x')T(x\given x')$.
+\end{definition}
+
+A stationary distribution is an eigenvector of $A\T$ with eigenvalue $1$, normalized to sum to one. Such an eigenvector exists ($A\mathbf1=\mathbf1$ shows that $1$ is an eigenvalue, and the Perron--Frobenius theorem gives a nonnegative eigenvector), but it need not be unique. Detailed balance says that in equilibrium the probability flow from $i$ to $j$ equals the flow back; summing it over $i$ gives $\sum_i\pi_iA_{ij}=\pi_j\sum_iA_{ji}=\pi_j$.
+
+\begin{proposition}[Detailed Balance Implies Stationarity]\label{prop:detailed-balance}
+If a chain satisfies detailed balance with respect to $\pi$, then $\pi$ is a stationary distribution of the chain.
+\end{proposition}
+
+Detailed balance is a local condition on pairs of states and is much easier to verify than stationarity; every MCMC algorithm below is built to satisfy it. For example, the two-state chain with $A=\big(\begin{smallmatrix}1-a&a\\b&1-b\end{smallmatrix}\big)$ satisfies $\pi_1a=\pi_2b$ for $\pi=(b,a)/(a+b)$, which is therefore its stationary distribution. A chain is \emph{irreducible} if every state can be reached from every other state. For a finite irreducible and aperiodic chain, the stationary distribution is unique, $\pi_t\to\pi$ from any initial distribution, and time averages along a single trajectory converge to expectations under $\pi$. This last property is what MCMC uses.
+
+\section{The Metropolis--Hastings Algorithm}\label{sec:mh}
+
+\emph{Markov chain Monte Carlo} (MCMC) constructs a Markov chain whose stationary distribution is the target $p$, runs it, and uses the trajectory as samples. Since each state depends on the previous one, the samples are correlated, and the first ones, before the chain has reached the high-probability region, are discarded as \emph{burn-in}. Expectations are estimated by the ergodic average $\E_p[\varphi(x)]\approx\frac1{S-S_0}\sum_{t=S_0+1}^S\varphi(x^{(t)})$.
+
+The Metropolis--Hastings (MH) algorithm uses a proposal $q(x'\given x)$ that depends on the current state, for example a Gaussian centered at $x$. Unlike in importance and rejection sampling, $q$ does not need to resemble $p$: it only has to make local moves, which are then accepted or rejected so that the chain has the right stationary distribution.
+
+\begin{algorithm}[H]
+\caption{Metropolis--Hastings}\label{alg:mh}
+\begin{algorithmic}[1]
+\Input{Unnormalized target $\tilde p$; proposal kernel $q(x'\given x)$; initial state $x^{(0)}$; number of iterations $S$; burn-in $S_0$.}
+\For{$t=0,\dots,S-1$}
+  \State Draw a candidate $x'\sim q(\cdot\given x^{(t)})$.
+  \State $\alpha\gets\min\Big\{1,\ \dfrac{\tilde p(x')\,q(x^{(t)}\given x')}{\tilde p(x^{(t)})\,q(x'\given x^{(t)})}\Big\}$ \Comment{$Z$ cancels}
+  \State Draw $u\sim\mathrm{Unif}[0,1]$.
+  \If{$u\le\alpha$}
+    \State $x^{(t+1)}\gets x'$ \Comment{accept}
+  \Else
+    \State $x^{(t+1)}\gets x^{(t)}$ \Comment{reject: the current state is repeated}
+  \EndIf
+\EndFor
+\Output{Correlated samples $x^{(S_0+1)},\dots,x^{(S)}$, approximately distributed according to $p$.}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{theorem}[Correctness of Metropolis--Hastings]\label{thm:mh}
+The chain generated by \cref{alg:mh} satisfies detailed balance with respect to $p$; hence $p$ is a stationary distribution.
+\end{theorem}
+
+For $x'\ne x$ the transition density is $q(x'\given x)\alpha(x'\given x)$, and
+\[
+p(x)\,q(x'\given x)\,\alpha(x'\given x)=\min\big\{p(x)q(x'\given x),\ p(x')q(x\given x')\big\},
+\]
+which is symmetric in $x$ and $x'$; this is detailed balance, and \cref{prop:detailed-balance} finishes the argument. Two features of the algorithm are essential. Only the ratio $\tilde p(x')/\tilde p(x)$ enters, so the normalizing constant is never needed. And a rejected candidate does not disappear as in rejection sampling: the current state is counted again, which is how the chain spends more time in regions of high probability.
+
+When the proposal is symmetric, $q(x'\given x)=q(x\given x')$, the ratio reduces to $\tilde p(x')/\tilde p(x)$: moves uphill are always accepted, and moves downhill are accepted with probability equal to the density ratio. This is the original \emph{Metropolis} algorithm. Its most common instance is \emph{random-walk Metropolis}, $x'=x+\sigma\xi$ with $\xi\sim\cN(0,I)$. The step size $\sigma$ governs a trade-off: small steps are almost always accepted but explore slowly, while large steps are mostly rejected and the chain gets stuck.
+
+\begin{notebox}{Pros and Cons}
+MCMC needs only the unnormalized density, works in high dimensions where independent proposals fail, and is asymptotically exact: with enough iterations, averages converge to the true expectations. However, the samples are correlated, so many iterations may carry little information; there is no reliable way to know when the chain has converged; random-walk proposals explore slowly in high dimensions and between separated modes; and the chain is inherently sequential.
+\end{notebox}
+
+\section{Gibbs Sampling}\label{sec:gibbs}
+
+Gibbs sampling updates one coordinate at a time, drawing it exactly from its \emph{full conditional} distribution given all other coordinates. Write $x=(x_1,\dots,x_d)$ and $x_{-j}$ for all components except $x_j$.
+
+\begin{algorithm}[H]
+\caption{Gibbs Sampling}\label{alg:gibbs}
+\begin{algorithmic}[1]
+\Input{Samplers for the full conditionals $p(x_j\given x_{-j})$, $j=1,\dots,d$; initial state $x^{(0)}$; number of sweeps $S$; burn-in $S_0$.}
+\For{$t=1,\dots,S$}
+  \For{$j=1,\dots,d$}
+    \State Draw $x_j^{(t)}\sim p\big(x_j\given x_1^{(t)},\dots,x_{j-1}^{(t)},x_{j+1}^{(t-1)},\dots,x_d^{(t-1)}\big)$ \Comment{newest values}
+  \EndFor
+\EndFor
+\Output{Samples $x^{(S_0+1)},\dots,x^{(S)}$, approximately distributed according to $p$.}
+\end{algorithmic}
+\end{algorithm}
+
+There is no accept/reject step: every draw is kept. In fact a Gibbs update is a Metropolis--Hastings step whose proposal is the full conditional itself, and for this proposal the MH acceptance probability equals one. The full conditionals are often easy even when the joint is not, because $p(x_j\given x_{-j})\propto p(x)$ involves only the factors that contain $x_j$, that is, the Markov blanket of $x_j$ in the graphical model.
+
+\smallskip\noindent\textbf{Bivariate Gaussian.} For $(X_1,X_2)$ with means $\mu_1,\mu_2$, unit variances, and correlation $\rho$, \cref{prop:gauss-cond} gives $X_1\given X_2=x_2\sim\cN\big(\mu_1+\rho(x_2-\mu_2),\,1-\rho^2\big)$ and symmetrically for $X_2$. The sampler alternates these two draws. When $|\rho|$ is close to one, the conditional variance $1-\rho^2$ is tiny, the chain moves in small axis-parallel steps along a narrow diagonal ridge, and mixing is slow. The TrueSkill posterior after many games between two evenly matched players has exactly this shape.
+
+\smallskip\noindent\textbf{Ising model.} For the denoising posterior of \cref{sec:loopy-bp}, $p(x_i\given x_{-i})\propto\exp(x_ih_i)$ with local field $h_i=J\sum_{j\in N(i)}x_j+\beta y_i$, so $p(x_i=+1\given x_{-i})=1/(1+e^{-2h_i})$. The real power of Gibbs sampling is in models like this, where the joint is intractable but every full conditional is a coin flip.
+
+\smallskip\noindent\textbf{Restricted Boltzmann machines.} In an Ising model on a bipartite graph between visible units $x$ and hidden units $h$, the hidden units are conditionally independent given $x$ and vice versa (by Hammersley--Clifford, \cref{sec:mrf}). Gibbs sampling can then update whole blocks at once, alternating $h\sim p(h\given x)$ and $x\sim p(x\given h)$, each a product of independent coin flips.
+
+For TrueSkill with the logistic likelihood, by contrast, the full conditional of a skill is not a standard distribution, so Gibbs sampling would need an inner sampler; gradient-based methods are more convenient.
+
+\begin{remark}[Connection to Mean-Field Updates]
+Gibbs sampling and naive mean-field variational inference (\cref{alg:mean-field}) have the same coordinate-wise structure. Gibbs draws $x_j$ from its conditional given the \emph{sampled} values of its neighbors; mean field sets $q_j(x_j)\propto\exp\big(\E_{q_{-j}}[\log p(x)]\big)$, which replaces the neighbors by their \emph{expectations}. For the Ising posterior, Gibbs uses $h_i=J\sum_{j}x_j+\beta y_i$ with sampled $x_j$, while mean field iterates $\mu_i\gets\tanh\big(J\sum_{j}\mu_j+\beta y_i\big)$ with means $\mu_j=\E_q[x_j]$.
+\end{remark}
+
+\section{Hamiltonian Monte Carlo}\label{sec:hmc}
+
+Random-walk proposals ignore the shape of the target. Hamiltonian Monte Carlo (HMC) is a Metropolis--Hastings algorithm with a proposal that follows the gradient of the log density and can therefore make long moves that are still accepted with high probability. It uses a physical analogy. Define the \emph{potential energy} $E(x)=-\log\tilde p(x)$, so that $p(x)\propto e^{-E(x)}$ and low energy means high probability. Introduce an auxiliary \emph{momentum} $v$ of the same dimension with \emph{kinetic energy} $K(v)=\frac12\norm{v}^2$, and the \emph{Hamiltonian} (total energy) $H(x,v)=E(x)+K(v)$. The joint distribution
+\[
+p(x,v)\propto e^{-H(x,v)}=e^{-E(x)}\,e^{-\frac12\norm v^2}
+\]
+has $p(x)$ as its $x$-marginal and makes $v\sim\cN(0,I)$ independent of $x$, so it suffices to sample $(x,v)$ and discard $v$.
+
+Picture a frictionless ball rolling on the surface $E$. Its motion follows Hamilton's equations
+\[
+\frac{\dd x}{\dd t}=\frac{\partial H}{\partial v}=v,\qquad\frac{\dd v}{\dd t}=-\frac{\partial H}{\partial x}=-\nabla E(x),
+\]
+which conserve the energy $H$ (so $p(x,v)$ is constant along the trajectory), are reversible (flipping the momentum retraces the path), and preserve volume in $(x,v)$-space. A proposal obtained by following the dynamics and flipping the momentum would therefore always be accepted. In practice the dynamics are simulated with the \emph{leapfrog integrator}, a few steps of size $\varepsilon$ of
+\[
+v\gets v-\tfrac\varepsilon2\nabla E(x),\qquad x\gets x+\varepsilon v,\qquad v\gets v-\tfrac\varepsilon2\nabla E(x),
+\]
+which is more accurate than Euler's method and is still deterministic, reversible, and volume preserving. Discretization changes $H$ slightly, and a Metropolis--Hastings test corrects for the error.
+
+\begin{algorithm}[H]
+\caption{Hamiltonian Monte Carlo (HMC)}\label{alg:hmc}
+\begin{algorithmic}[1]
+\Input{Energy $E(x)=-\log\tilde p(x)$ and its gradient; step size $\varepsilon$; number of leapfrog steps $L$; initial state $x^{(0)}$; number of iterations $S$.}
+\For{$t=1,\dots,S$}
+  \State $x\gets x^{(t-1)}$; draw a fresh momentum $v\sim\cN(0,I)$.
+  \State $(x',v')\gets(x,v)$
+  \For{$\ell=1,\dots,L$} \Comment{leapfrog integration}
+    \State $v'\gets v'-\frac\varepsilon2\nabla E(x')$; \quad $x'\gets x'+\varepsilon v'$; \quad $v'\gets v'-\frac\varepsilon2\nabla E(x')$
+  \EndFor
+  \State $v'\gets-v'$ \Comment{makes the proposal its own inverse}
+  \State With probability $\min\big\{1,\exp\big(H(x,v)-H(x',v')\big)\big\}$ set $x^{(t)}\gets x'$; otherwise $x^{(t)}\gets x$.
+\EndFor
+\Output{Samples $x^{(1)},\dots,x^{(S)}$, approximately distributed according to $p$ (momenta are discarded).}
+\end{algorithmic}
+\end{algorithm}
+
+Resampling the momentum at every iteration lets the chain move between energy levels; the leapfrog trajectory then carries it far along the current level set. If the integration were exact, $H(x',v')=H(x,v)$ and every proposal would be accepted; with a small step size the acceptance rate stays high even for long trajectories. The step size $\varepsilon$ and the trajectory length $L$ must be tuned: too large a step makes the energy error and the rejection rate grow, too short a trajectory turns HMC back into a random walk.
+
+\begin{remark}[The Acceptance Probability]
+The slides write the acceptance probability as $\min\{1,\exp(H(x^{(t-1)},v^{(t-1)}))/\exp(H(x',v'))\}$. The energy in the numerator must be evaluated at the starting position and the \emph{freshly drawn} momentum $v$ of the current iteration, as in \cref{alg:hmc}; the momentum from the previous iteration plays no role.
+\end{remark}
+
+\begin{remark}[Connection to Gradient Descent and Langevin Monte Carlo]
+Each leapfrog half-step $v\gets v+\frac\varepsilon2\nabla\log\tilde p(x)$ is a gradient ascent step on the log density, as in \cref{alg:gd}, applied to the momentum. With a single leapfrog step, $L=1$, the proposal becomes
+\[
+x'=x+\eta\,\nabla\log\tilde p(x)+\sqrt{2\eta}\,\xi,\qquad\xi\sim\cN(0,I),\quad\eta=\varepsilon^2/2,
+\]
+gradient ascent plus Gaussian noise. This is the Langevin proposal; combined with a Metropolis--Hastings test, using the proposal density $q(x'\given x)=\cN\big(x';\,x+\eta\nabla\log\tilde p(x),\,2\eta I\big)$, it is the Metropolis-adjusted Langevin algorithm (MALA). Noisy gradient-like steps of a closely related form reappear in the sampling procedure of diffusion models (\cref{ch:diffusion}).
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+HMC uses gradient information to make distant proposals with high acceptance probability, and it scales much better with dimension than random-walk Metropolis; with automatic differentiation the gradient of a log posterior such as TrueSkill's is cheap to compute. However, it requires a differentiable log density on a continuous space, each iteration costs $L$ gradient evaluations, its performance is sensitive to $\varepsilon$ and $L$, and it still struggles to move between well-separated modes.
+\end{notebox}
+
+\section{MCMC in Practice: Diagnostics}\label{sec:mcmc-diagnostics}
+
+MCMC output is used like any sample from the posterior: posterior means, medians, and quantiles are computed from the draws, and the posterior predictive distribution (\cref{sec:bayes-inference}) is sampled by simulating new outcomes given each draw. Before doing so, one must ask whether the chain has run long enough, whether it started too far from the bulk of the distribution, and how much information correlated samples actually carry. Some practices follow directly: run several chains in parallel from dispersed starting points, discard a burn-in phase, and examine how well the chains have mixed. Two standard numerical summaries make this precise. (The lectures note that the formulas need not be memorized.)
+
+\begin{definition}[Potential Scale Reduction $\hat R$]\label{def:rhat}
+Let $x_{ij}$, $i=1,\dots,n$, $j=1,\dots,m$, be $m$ chains of length $n$ after burn-in, with chain means $\bar x_{\cdot j}$ and overall mean $\bar x_{\cdot\cdot}$. Define the between-chain and within-chain variances
+\[
+B=\frac n{m-1}\sum_{j=1}^m\big(\bar x_{\cdot j}-\bar x_{\cdot\cdot}\big)^2,\qquad
+W=\frac1m\sum_{j=1}^ms_j^2,\quad s_j^2=\frac1{n-1}\sum_{i=1}^n\big(x_{ij}-\bar x_{\cdot j}\big)^2,
+\]
+the pooled estimate $\widehat{\mathrm{var}}^+=\frac{n-1}nW+\frac1nB$, and $\hat R=\sqrt{\widehat{\mathrm{var}}^+/W}$. \emph{Split-$\hat R$} applies the same formula after cutting each chain into its first and second halves.
+\end{definition}
+
+If the chains have not mixed, they sit in different regions, the pooled variance exceeds the within-chain variance, and $\hat R>1$. Splitting the chains also detects non-stationarity within a single chain.
+
+\begin{definition}[Effective Sample Size]\label{def:ess}
+For $mn$ draws with autocorrelations $\rho_t=\mathrm{corr}(x_0,x_t)$ at lag $t$,
+\[
+n_{\mathrm{eff}}=\frac{mn}{1+2\sum_{t=1}^\infty\rho_t},
+\]
+where in practice the $\rho_t$ are estimated from the chains.
+\end{definition}
+
+For i.i.d.\ draws $\Var(\bar x)=\sigma^2/n$; for correlated draws the variance is larger by the factor $1+2\sum_t\rho_t$, and $n_{\mathrm{eff}}$ is the number of independent draws that would give the same precision. The rule of thumb from the lectures is to collect the draws once $\hat R$ is near $1$ and $n_{\mathrm{eff}}$ exceeds about $10$ per chain for every scalar quantity of interest. Passing these checks only shows that the chains \emph{appear} stationary and well mixed; a chain can pass every test and still be far from convergence, for example if all chains miss the same mode.
+
+\begin{remark}
+The samplers of this chapter, together with Langevin algorithms, tempering, and particle filters, are developed in detail in the CAAM 31511 notes (\emph{A First Course in Monte Carlo Methods}), which use the same layout as these notes.
+\end{remark}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & Requires & Produces & Main weakness \\
+\midrule
+Ancestral sampling & DAG with samplable conditionals & exact i.i.d.\ joint samples & no conditioning on evidence \\
+Importance sampling & $\tilde p$; proposal $q$ (sample, evaluate) & weighted samples; $Z_p/Z_q$ & weight degeneracy in high dimension \\
+Rejection sampling & $\tilde p$; $q$; envelope constant $c$ & exact i.i.d.\ samples & acceptance rate $Z_p/(cZ_q)$, exponentially small \\
+Metropolis--Hastings & $\tilde p$; local proposal & correlated samples & slow random-walk exploration \\
+Gibbs sampling & samplable full conditionals & correlated samples & slow when variables are strongly dependent \\
+HMC & $\nabla\log\tilde p$; continuous $x$ & correlated samples, long moves & tuning of $\varepsilon,L$; cost per iteration \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}{Limitations and what comes next}
+Sampling methods are asymptotically exact, but they are slow: MCMC needs many sequential iterations, each of which evaluates the unnormalized density, and for a posterior that means a pass over the whole data set; convergence is hard to diagnose; and the evidence $p(x)$, needed to compare models or fit hyperparameters, is not a by-product. \Cref{ch:vi} trades exactness for speed. It approximates the posterior by the closest member of a tractable family, which turns inference into an optimization problem that can be solved with stochastic gradients, scales to large data, and yields a lower bound on the evidence.
+\end{notebox}

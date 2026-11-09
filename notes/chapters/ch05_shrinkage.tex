@@ -1,0 +1,239 @@
+\chapter{Shrinkage and Bayesian Linear Regression}\label{ch:shrinkage}
+
+Subset selection (\cref{sec:subset}) reduces the variance of OLS by removing predictors, but it searches a discrete space: best subset selection is exponentially expensive, stepwise selection is greedy, and either way a predictor is fully in or fully out. Shrinkage methods keep all $p$ predictors and instead pull the estimated coefficients continuously toward zero by adding a penalty to the least squares objective. \Cref{sec:ridge} introduces ridge regression and \cref{sec:lasso} the lasso, whose penalty also sets coefficients exactly to zero. \Cref{sec:shrinkage-toy} computes the shrinkage of both in a design where everything is explicit, \cref{sec:lambda-choice} chooses the penalty level by cross-validation and lists other penalties, and \cref{sec:map-view} reinterprets the penalty as a prior. Taking that interpretation seriously leads to Bayesian linear regression (\cref{sec:blr}), which returns a full distribution over predictions instead of a point estimate.
+
+\section{Ridge Regression}\label{sec:ridge}
+
+\begin{definition}[Ridge Regression]\label{def:ridge}
+For a tuning parameter $\lambda\ge0$, the \emph{ridge regression} estimate $\hat\beta^R_\lambda$ minimizes
+\[
+\sum_{i=1}^n\Big(y_i-\beta_0-\sum_{j=1}^p\beta_jx_{ij}\Big)^2+\lambda\sum_{j=1}^p\beta_j^2=\mathrm{RSS}(\beta)+\lambda\norm{\beta_{1:p}}_2^2 .
+\]
+The term $\lambda\norm{\beta_{1:p}}_2^2$ is a \emph{shrinkage} or \emph{regularization penalty}. The intercept $\beta_0$ is not penalized.
+\end{definition}
+
+For $\lambda=0$ ridge regression is OLS; as $\lambda\to\infty$ all slopes are driven to zero and the fit tends to the constant $\bar y$. In between, ridge accepts a slightly larger RSS in exchange for smaller coefficients. If the predictors are centered and $y$ is centered, so that $\hat\beta_0=\bar y$, the minimizer has a closed form,
+\[
+\hat\beta^R_\lambda=(X\T X+\lambda I_p)^{-1}X\T y,
+\]
+where $X\in\R^{n\times p}$ now has no column of ones. The matrix $X\T X+\lambda I_p$ is invertible for every $\lambda>0$, even when $p>n$, so ridge regression is well defined exactly where OLS breaks down. Computing it costs about the same as OLS for a given $\lambda$, far less than best subset selection.
+
+Unlike OLS, ridge regression is not \emph{scale equivariant}: multiplying a predictor by $c$ divides its OLS coefficient by $c$, but changes the ridge fit, since the penalty treats all coefficients alike. Predictors are therefore standardized before fitting,
+\[
+\tilde x_{ij}=\frac{x_{ij}}{\sqrt{\frac1n\sum_{i=1}^n(x_{ij}-\bar x_j)^2}},
+\]
+so that all have standard deviation one.
+
+As $\lambda$ grows, the variance of the fit falls and its squared bias rises. On a simulated example with nearly as many predictors as observations, where OLS has very high variance, the test MSE of ridge first decreases sharply with $\lambda$ and then increases again, with a minimum well below the OLS error; this is the bias--variance trade-off of \cref{thm:bias-variance} traced out by a single continuous knob.
+
+\begin{notebox}{Pros and Cons}
+Ridge regression improves on OLS in prediction whenever the OLS estimates have high variance (many predictors, collinearity, $p$ close to or larger than $n$), it is computationally as cheap as OLS, and it varies smoothly with the data and with $\lambda$. However, it shrinks all coefficients but sets none of them exactly to zero, so the fitted model always contains all $p$ predictors and is hard to interpret.
+\end{notebox}
+
+\section{The Lasso}\label{sec:lasso}
+
+\begin{definition}[Lasso]\label{def:lasso}
+For $\lambda\ge0$, the \emph{lasso} estimate $\hat\beta^L_\lambda$ minimizes
+\[
+\sum_{i=1}^n\Big(y_i-\beta_0-\sum_{j=1}^p\beta_jx_{ij}\Big)^2+\lambda\sum_{j=1}^p|\beta_j|=\mathrm{RSS}(\beta)+\lambda\norm{\beta_{1:p}}_1 .
+\]
+\end{definition}
+
+The only change is the $\ell_1$ penalty in place of the squared $\ell_2$ penalty, but the consequence is qualitative: for $\lambda$ large enough, some lasso coefficients are \emph{exactly zero}. The lasso therefore performs variable selection, and its fitted models are \emph{sparse}. The lasso objective has no closed-form minimizer, but it is convex (\cref{sec:convexity}), and efficient algorithms compute it quickly for a whole grid of $\lambda$ values.
+
+Why exact zeros? Both methods can be written as constrained least squares problems: for every $\lambda$ there is an $s\ge0$ such that
+\[
+\hat\beta^L\in\argmin_\beta\ \mathrm{RSS}(\beta)\ \text{ subject to }\ \sum_{j=1}^p|\beta_j|\le s,
+\qquad
+\hat\beta^R\in\argmin_\beta\ \mathrm{RSS}(\beta)\ \text{ subject to }\ \sum_{j=1}^p\beta_j^2\le s .
+\]
+The level sets of the RSS are ellipses centered at the OLS estimate, and the solution is the point where the smallest ellipse touches the constraint region (\cref{fig:lasso-ridge}). The $\ell_2$ ball is round, so the contact point generically has all coordinates nonzero. The $\ell_1$ ball has corners on the coordinate axes, and an ellipse often touches it first at a corner, where some coordinates vanish. In higher dimensions the $\ell_1$ ball has many corners and edges, which makes sparse solutions even more typical.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[scale=1.0, >={Stealth[length=2mm]}]
+% left panel: lasso
+\fill[blue!20, draw=blue!60!black] (1,0) -- (0,1) -- (-1,0) -- (0,-1) -- cycle;
+% right panel: ridge
+\fill[blue!20, draw=blue!60!black] (6.2,0) circle (1);
+\foreach \dx/\name/\aa/\bb in {0/lasso/2.121/1.061, 6.2/ridge/2.002/1.001}{
+  \begin{scope}[xshift=\dx cm]
+    \draw[->] (-1.6,0) -- (3.6,0) node[right] {$\beta_1$};
+    \draw[->] (0,-1.4) -- (0,4.4) node[above] {$\beta_2$};
+    \foreach \s in {0.35,0.7,1.0}{\draw[red!70!black, rotate around={45:(1.5,2.5)}] (1.5,2.5) ellipse ({\aa*\s} and {\bb*\s});}
+    \fill (1.5,2.5) circle (1.5pt) node[right=2pt, font=\small] {$\hat\beta$};
+    \node[font=\small\sffamily] at (1.0,-1.8) {\name};
+  \end{scope}
+}
+\fill (0,1) circle (1.8pt);
+\fill (6.505,0.952) circle (1.8pt);
+\end{tikzpicture}
+\caption{Constraint regions $|\beta_1|+|\beta_2|\le s$ (left) and $\beta_1^2+\beta_2^2\le s$ (right) with contours of the RSS around the OLS estimate $\hat\beta$. The lasso solution (dot) lies on a corner, so $\hat\beta^L_1=0$; the ridge solution has both coordinates nonzero.}
+\label{fig:lasso-ridge}
+\end{figure}
+
+Neither method dominates the other in prediction. When the true coefficients are all nonzero and of similar size, ridge and lasso have similar bias but ridge has smaller variance and wins. When only a few predictors matter, the lasso has both smaller bias and smaller variance. One expects the lasso to do better when the response depends on a relatively small number of predictors; in practice cross-validation decides.
+
+\begin{notebox}{Pros and Cons}
+The lasso reduces variance like ridge regression and, in addition, selects variables, so its models are sparse and interpretable; the penalized problem is convex and fast to solve. On the other hand, the lasso has no closed form, it tends to pick one predictor arbitrarily from a group of highly correlated ones, and it can be outperformed by ridge regression when the true signal is spread over many predictors.
+\end{notebox}
+
+\section{Shrinkage in an Orthogonal Design}\label{sec:shrinkage-toy}
+
+The difference between the two penalties is easiest to see when the design is trivial. Take $n=p$, $X=I_p$, no intercept, so that
+\[
+y_j=\beta_j+\varepsilon_j,\qquad \E[\varepsilon_j]=0,\quad \E[\varepsilon_j^2]=\sigma^2,\qquad j=1,\dots,p .
+\]
+All three objectives separate across coordinates and can be minimized one $\beta_j$ at a time.
+
+\begin{proposition}[OLS, Ridge and Lasso for $X=I$]\label{prop:orthogonal-shrinkage}
+Minimizing $\sum_j(y_j-\beta_j)^2$ without penalty, with penalty $\lambda\sum_j\beta_j^2$, or with penalty $\lambda\sum_j|\beta_j|$ gives
+\[
+\hat\beta_j=y_j,\qquad
+\hat\beta^R_j=\frac{y_j}{1+\lambda},\qquad
+\hat\beta^L_j=\begin{cases}y_j-\lambda/2,& y_j>\lambda/2,\\ y_j+\lambda/2,& y_j<-\lambda/2,\\ 0,& |y_j|\le\lambda/2,\end{cases}
+\]
+that is, $\hat\beta^L_j=\sign(y_j)\,(|y_j|-\lambda/2)_+$.
+\end{proposition}
+
+Ridge \emph{scales} every coefficient by the same factor $1/(1+\lambda)$, so no coefficient becomes zero. The lasso \emph{soft-thresholds}: it moves every coefficient toward zero by the same amount $\lambda/2$ and sets to zero those that would cross it. Small, noise-dominated coefficients are removed; large ones are kept, though biased by $\lambda/2$.
+
+In this design the bias and variance are explicit. OLS is unbiased with $\Var(\hat\beta_j)=\sigma^2$, so its total mean squared error is $\E\norm{\hat\beta-\beta}_2^2=p\sigma^2$. For ridge,
+\[
+\E[\hat\beta^R_j]=\frac{\beta_j}{1+\lambda},\qquad \Var(\hat\beta^R_j)=\frac{\sigma^2}{(1+\lambda)^2},\qquad
+\E\norm{\hat\beta^R-\beta}_2^2=\frac{\lambda^2\norm{\beta}_2^2+p\sigma^2}{(1+\lambda)^2}.
+\]
+The first term is the squared bias, which grows with $\lambda$; the second is the variance, which shrinks.
+
+\begin{remark}[Some Shrinkage Always Helps Here]\label{rem:ridge-optimal}
+Differentiating the ridge MSE gives a derivative proportional to $\lambda\norm{\beta}_2^2-p\sigma^2$, which is negative at $\lambda=0$. Hence a small amount of shrinkage always beats OLS in this model, and the best value is $\lambda^*=p\sigma^2/\norm{\beta}_2^2$, with MSE $p\sigma^2\cdot\frac{\norm{\beta}_2^2}{\norm{\beta}_2^2+p\sigma^2}<p\sigma^2$. The gain is large when the signal $\norm{\beta}_2^2$ is small compared with the total noise $p\sigma^2$. Since $\lambda^*$ depends on the unknown $\beta$, it must be estimated from the data, which is the subject of the next section.
+\end{remark}
+
+\section{Choosing the Penalty and Other Penalties}\label{sec:lambda-choice}
+
+Each value of $\lambda$ defines a different model, so choosing $\lambda$ is a model selection problem, solved with the tools of \cref{ch:linreg}.
+
+\begin{algorithm}[H]
+\caption{Choosing the Penalty by Cross-Validation}\label{alg:lambda-cv}
+\begin{algorithmic}[1]
+\Input{Data $\cD$; penalized method (ridge or lasso); grid $\lambda_1>\lambda_2>\dots>\lambda_m\ge0$; number of folds $k$.}
+\State Standardize the predictors (using the training folds only, inside each fold).
+\State For each $\lambda_j$, compute the $k$-fold cross-validation error $\mathrm{CV}(\lambda_j)$ with \cref{alg:kfold-cv}.
+\State $\lambda^*\gets\argmin_{\lambda_j}\mathrm{CV}(\lambda_j)$
+\State Refit the penalized method with $\lambda^*$ on all of $\cD$.
+\Output{$\lambda^*$ and the fitted coefficients $\hat\beta_{\lambda^*}$.}
+\end{algorithmic}
+\end{algorithm}
+
+The grid is usually logarithmic, and with warm starts the fits along the grid are cheap. On the Credit data, the cross-validation curve for ridge regression is fairly flat near its minimum, and the selected $\lambda$ shrinks the coefficients only moderately compared with OLS.
+
+\smallskip\noindent\textbf{Other penalties.} Ridge and lasso are two points in a large family.
+\begin{enumerate}[(i)]
+  \item The \emph{elastic net} minimizes $\norm{y-X\beta}_2^2+\lambda\big[(1-\alpha)\norm{\beta}_1+\alpha\norm{\beta}_2^2\big]$ with $\alpha\in[0,1]$, so $\alpha=1$ is ridge and $\alpha=0$ the lasso (conventions differ: in the R package glmnet, $\alpha=1$ is the lasso). It keeps the sparsity of the lasso while behaving more stably when predictors are strongly correlated, a situation to which the lasso is very sensitive.
+  \item The \emph{group lasso} penalizes groups of coefficients through their Euclidean norms. In $Y=\beta_0+\beta_1X_1+\beta_2X_1^2+\beta_3X_2+\beta_4X_2^2+\varepsilon$, the penalty $\lambda\big(\sqrt{\beta_1^2+\beta_2^2}+\sqrt{\beta_3^2+\beta_4^2}\big)$ sets both coefficients of a variable to zero together, so whole variables are removed rather than individual terms.
+\end{enumerate}
+
+More generally, regularization applies to any parametric model:
+\begin{equation}\label{eq:penalized-erm}
+\hat\beta_\lambda=\argmin_\beta\ \Big[\cL(\beta;\cD)+\lambda\,\mathrm{Pen}(\beta)\Big],
+\end{equation}
+where $\cL$ is a training loss, for instance a negative log-likelihood, and $\mathrm{Pen}$ a penalty. OLS, ridge and lasso are the squared loss with $\mathrm{Pen}=0$, $\norm{\beta}_2^2$ and $\norm{\beta}_1$. Penalized logistic regression (\cref{sec:logistic}), the soft-margin SVM (\cref{sec:soft-margin}) and weight decay in neural networks (\cref{ch:nn}) are further instances.
+
+\begin{remark}[Connection to Gradient Descent: Weight Decay]\label{rem:weight-decay}
+With the scaling $\frac12\norm{y-X\beta}_2^2+\frac\lambda2\norm{\beta}_2^2$, a gradient descent step (\cref{alg:gd}) with learning rate $\eta$ reads
+\[
+\beta\gets(1-\eta\lambda)\,\beta-\eta\,X\T(X\beta-y).
+\]
+Before the usual least squares step, the coefficients are multiplied by $1-\eta\lambda<1$; this is why the $\ell_2$ penalty is called \emph{weight decay} when it is used to train neural networks.
+\end{remark}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & How complexity is controlled & Computation & Sparse? \\
+\midrule
+OLS & not at all & closed form & no \\
+Best subset & number of predictors, discrete & $2^p$ fits & yes \\
+Forward stepwise & number of predictors, greedy path & $1+p(p+1)/2$ fits & yes \\
+Ridge & $\lambda\norm{\beta}_2^2$, continuous & closed form per $\lambda$ & no \\
+Lasso & $\lambda\norm{\beta}_1$, continuous & convex optimization & yes \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Penalties as Priors}\label{sec:map-view}
+
+So far the penalty was a device to trade bias for variance. A probabilistic model gives it a second meaning. Assume $y_i\given x_i,\beta\sim\cN(x_i\T\beta,\sigma^2)$, so that the log-likelihood is $-\frac{1}{2\sigma^2}\norm{y-X\beta}_2^2+\text{const}$ (\cref{rem:ols-mle}), and put a prior $p(\beta)$ on the coefficients. The maximum a posteriori (MAP) estimate of \cref{sec:bayes-inference} maximizes $\log p(\beta)+\log p(\cD\given\beta)$.
+
+\begin{proposition}[Ridge and Lasso as MAP Estimates]\label{prop:map-penalties}
+\leavevmode
+\begin{enumerate}[(i)]
+  \item With the Gaussian prior $\beta_j\iidsim\cN(0,\tau^2)$, the MAP estimate is the ridge estimate with $\lambda=\sigma^2/\tau^2$.
+  \item With the Laplace prior $p(\beta_j)\propto\exp(-|\beta_j|/b)$, independently over $j$, the MAP estimate is the lasso estimate with $\lambda=2\sigma^2/b$.
+\end{enumerate}
+In both cases the prior is placed on $\beta_1,\dots,\beta_p$ only; the intercept gets a flat prior (or the data are centered), matching the unpenalized intercept of \cref{def:ridge}.
+\end{proposition}
+
+Indeed, in case (i) the negative log-posterior is $\frac{1}{2\sigma^2}\norm{y-X\beta}_2^2+\frac{1}{2\tau^2}\norm{\beta}_2^2+\text{const}$; multiplying by $2\sigma^2$ gives the ridge objective. Case (ii) is the same computation with $\frac1b\norm{\beta}_1$. A strong prior belief that coefficients are small (small $\tau^2$) means heavy shrinkage (large $\lambda$), and $\lambda\to0$ corresponds to a flat prior, under which MAP reduces to maximum likelihood, that is, to OLS. The Laplace density has a sharp peak at zero, which is the probabilistic counterpart of the corners of the $\ell_1$ ball.
+
+\section{Bayesian Linear Regression}\label{sec:blr}
+
+The MAP estimate uses the prior but still returns a single $\beta$. Full Bayesian inference keeps the whole posterior distribution and averages predictions over it. The model then ``knows what it does not know'': predictions come with uncertainty, which can be used to report confidence, to make more robust decisions, and to decide where more data are needed.
+
+We work with a general feature map $\phi\colon\cX\to\R^m$, for instance $\phi(x)=(1,x_1,\dots,x_p)$ or the basis functions of \cref{ch:nonlinear}. Let $\Phi\in\R^{n\times m}$ have rows $\phi(x_i)\T$.
+
+\begin{definition}[Bayesian Linear Regression]\label{def:blr}
+The prior is $\beta\sim\cN(0,S)$ and the likelihood $y_i\given x_i,\beta\sim\cN(\beta\T\phi(x_i),\sigma^2)$, independently over $i$, with $S$ and $\sigma^2$ known.
+\end{definition}
+
+\begin{proposition}[Posterior]\label{prop:blr-posterior}
+The posterior is Gaussian, $\beta\given\cD\sim\cN(\mu,\Sigma)$, with
+\[
+\Sigma=\sigma^2\big(\Phi\T\Phi+\sigma^2S^{-1}\big)^{-1},\qquad
+\mu=\big(\Phi\T\Phi+\sigma^2S^{-1}\big)^{-1}\Phi\T y .
+\]
+\end{proposition}
+
+The posterior follows by completing the square (\cref{sec:gaussian}): as a function of $\beta$,
+\[
+\log p(\beta\given\cD)=-\tfrac12\beta\T S^{-1}\beta-\tfrac{1}{2\sigma^2}\norm{\Phi\beta-y}_2^2+\text{const}
+=-\tfrac12\beta\T\big(\sigma^{-2}\Phi\T\Phi+S^{-1}\big)\beta+\sigma^{-2}y\T\Phi\beta+\text{const},
+\]
+and a log-density of the form $-\frac12\beta\T A\beta+b\T\beta$ with $A$ positive definite belongs to $\cN(A^{-1}b,A^{-1})$. The Gaussian prior is \emph{conjugate}: the posterior is again Gaussian. With $S=(\sigma^2/\lambda)I$ the posterior mean is $\mu=(\Phi\T\Phi+\lambda I)^{-1}\Phi\T y$, the ridge estimate (with the intercept penalized too if $\Phi$ contains a constant feature), in agreement with \cref{prop:map-penalties}; as the prior variance tends to infinity, $\mu$ tends to the OLS estimate. Because the posterior after one batch of data is the prior for the next, the posterior can also be updated one observation at a time. For $y=\beta_0+\beta_1x$, a single point only restricts $\beta$ to a line in parameter space, and the posterior concentrates around the true coefficients as points accumulate.
+
+To predict at a new input $x$, average the likelihood over the posterior.
+
+\begin{proposition}[Posterior Predictive Distribution]\label{prop:blr-predictive}
+\begin{gather*}
+p(y\given x,\cD)=\int p(y\given x,\beta)\,p(\beta\given\cD)\dd\beta=\cN\big(y;\ \mu_{\mathrm{pred}}(x),\ \sigma^2_{\mathrm{pred}}(x)\big),\\
+\mu_{\mathrm{pred}}(x)=\mu\T\phi(x),\qquad \sigma^2_{\mathrm{pred}}(x)=\phi(x)\T\Sigma\,\phi(x)+\sigma^2 .
+\end{gather*}
+\end{proposition}
+
+This is immediate from writing $y=\beta\T\phi(x)+\varepsilon$ with $\beta\given\cD\sim\cN(\mu,\Sigma)$ independent of $\varepsilon\sim\cN(0,\sigma^2)$: an affine function of Gaussians is Gaussian (\cref{prop:linear-gaussian}). The predictive variance has two parts. The noise $\sigma^2$ cannot be reduced by more data. The term $\phi(x)\T\Sigma\phi(x)$ is the uncertainty about $\beta$; it is small near the training inputs and grows away from them, within the region covered by the features. With radial basis features $\phi_j(x)=\exp\big(-(x-c_j)^2/(2s^2)\big)$ centered at $c_j$, functions sampled from the posterior agree near the data and fan out between the data points, and the predictive bands widen accordingly. Far from all centers, however, $\phi(x)\to0$ and the predictive variance falls back to $\sigma^2$: the model becomes overconfident exactly where it has no data, a defect that Gaussian processes (\cref{sec:gp}) avoid.
+
+\begin{algorithm}[H]
+\caption{Bayesian Linear Regression}\label{alg:blr}
+\begin{algorithmic}[1]
+\Input{Data $\cD=\{(x_i,y_i)\}_{i=1}^n$; feature map $\phi$; prior covariance $S$; noise variance $\sigma^2$; test inputs $x_1^*,\dots,x_r^*$.}
+\State Form $\Phi\in\R^{n\times m}$ with rows $\phi(x_i)\T$.
+\State $\Sigma\gets\sigma^2\big(\Phi\T\Phi+\sigma^2S^{-1}\big)^{-1}$; \quad $\mu\gets\sigma^{-2}\,\Sigma\,\Phi\T y$ \Comment{posterior, \cref{prop:blr-posterior}}
+\For{$j=1,\dots,r$}
+  \State $\mu_j^*\gets\mu\T\phi(x_j^*)$; \quad $(\sigma_j^*)^2\gets\phi(x_j^*)\T\Sigma\,\phi(x_j^*)+\sigma^2$ \Comment{predictive, \cref{prop:blr-predictive}}
+\EndFor
+\Output{Posterior $\cN(\mu,\Sigma)$ over $\beta$ and predictive distributions $\cN\big(\mu_j^*,(\sigma_j^*)^2\big)$; e.g.\ $95\%$ bands $\mu_j^*\pm1.96\,\sigma_j^*$.}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{notebox}{Pros and Cons}
+Bayesian linear regression has a closed-form posterior, its predictive mean coincides with ridge regression, and it adds calibrated uncertainty that increases away from the data. However, it assumes that $S$ and $\sigma^2$ are known, which is a strong assumption, and the fit is only as flexible as the fixed feature map $\phi$; inverting an $m\times m$ matrix also becomes expensive when there are many features.
+\end{notebox}
+
+\begin{remark}[Connection to Gaussian Processes]
+The predictive mean and variance depend on the features only through inner products of the form $\phi(x)\T S\,\phi(x')$. Replacing these inner products by a kernel $k(x,x')$ allows infinitely many features at finite cost (\cref{sec:kernel-trick}) and turns Bayesian linear regression into Gaussian process regression (\cref{sec:gp}). There the unknown quantities $S$ and $\sigma^2$, now kernel hyperparameters, are learned by maximizing the marginal likelihood instead of being fixed in advance.
+\end{remark}
+
+\begin{notebox}{Limitations and what comes next}
+Every model in this and the previous chapter is linear in a fixed set of features, and so far those features were essentially the raw inputs. Regularization controls the variance of such models, and the Bayesian view quantifies their uncertainty, but neither helps when the true regression function is strongly nonlinear in $X$. \Cref{ch:nonlinear} keeps the linear-in-parameters structure, and with it all the fitting and selection tools developed so far, but enriches the features: polynomials, step functions, splines, local fits, and additive combinations of them.
+\end{notebox}

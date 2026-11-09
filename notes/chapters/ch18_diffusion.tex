@@ -1,0 +1,240 @@
+\chapter{Diffusion Models}\label{ch:diffusion}
+
+A generative model learns a distribution $p(x)$ from samples $x^{(1)},\dots,x^{(n)}$ and produces new samples from it. The book has met several: Gaussian mixtures and probabilistic PCA (\cref{ch:latent}), variational autoencoders (\cref{sec:vae}), and autoregressive transformers (\cref{sec:transformer}). Other well-known families are generative adversarial networks (GANs) and normalizing flows. This last chapter treats \emph{diffusion models}, which underlie text-to-image systems such as DALL$\cdot$E 3 and Stable Diffusion 3. They use two processes: a fixed \emph{forward process} that turns an image into pure noise by adding a little Gaussian noise at a time (\cref{sec:forward-process}), and a learned \emph{reverse process} that starts from noise and removes it step by step (\cref{sec:reverse-process}). The reverse process is trained by maximizing an evidence lower bound, exactly as in variational inference (\cref{sec:diffusion-elbo}), which reduces to a simple denoising regression (\cref{sec:ddpm}). \Cref{sec:diffusion-vae} compares diffusion models with VAEs, \cref{sec:guidance} shows how to condition on a label or a caption, and \cref{sec:generative-tradeoffs} places diffusion among the other generative models. Throughout, $\beta_t$ denotes a noise variance; it is unrelated to the regression coefficients $\beta$ of \cref{part:prediction}.
+
+\section{The Forward Process}\label{sec:forward-process}
+
+\begin{definition}[Forward Process]\label{def:forward-process}
+Let $x_0\sim q(x_0)$ be a data point (an image, flattened into a vector in $\R^d$) and let $0<\beta_1<\dots<\beta_T<1$ be a \emph{noise schedule}. The \emph{forward process} is the Markov chain
+\[
+q(x_{1:T}\given x_0)=\prod_{t=1}^Tq(x_t\given x_{t-1}),\qquad q(x_t\given x_{t-1})=\cN\big(\sqrt{1-\beta_t}\,x_{t-1},\ \beta_tI\big),
+\]
+that is, $x_t=\sqrt{1-\beta_t}\,x_{t-1}+\sqrt{\beta_t}\,\varepsilon_{t-1}$ with $\varepsilon_{t-1}\sim\cN(0,I)$ independent of the past.
+\end{definition}
+
+Each step shrinks the signal slightly and adds a little noise. The shrinkage factor $\sqrt{1-\beta_t}$ is chosen so that the variance is preserved: if $x_{t-1}$ has identity covariance, so does $x_t$. The forward process has no parameters; it is a linear-Gaussian chain $x_0\to x_1\to\dots\to x_T$, a DAG in the sense of \cref{sec:dag}.
+
+\begin{proposition}[Closed-Form Marginals]\label{prop:diffusion-marginal}
+Let $\alpha_t:=1-\beta_t$ and $\bar\alpha_t:=\prod_{s=1}^t\alpha_s$. Then
+\[
+q(x_t\given x_0)=\cN\big(\sqrt{\bar\alpha_t}\,x_0,\ (1-\bar\alpha_t)I\big),\qquad\text{equivalently}\qquad x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon,\quad\varepsilon\sim\cN(0,I).
+\]
+\end{proposition}
+
+Two steps show the pattern: $x_t=\sqrt{\alpha_t\alpha_{t-1}}\,x_{t-2}+\sqrt{\alpha_t(1-\alpha_{t-1})}\,\varepsilon_{t-2}+\sqrt{1-\alpha_t}\,\varepsilon_{t-1}$, and the two independent noise terms combine into one Gaussian with variance $\alpha_t(1-\alpha_{t-1})+1-\alpha_t=1-\alpha_t\alpha_{t-1}$. The proposition is the practical heart of the method: a noisy version of $x_0$ at any level $t$ can be drawn in one shot, without simulating the chain.
+
+The schedule is chosen so that $\bar\alpha_T\approx0$. Then $q(x_T\given x_0)\approx\cN(0,I)$ whatever $x_0$ was: after $T$ steps all information about the data has been destroyed and $x_T$ is white noise. The standard choice (Ho et al., 2020) is $T=1000$ with $\beta_t$ increasing linearly from $10^{-4}$ to $0.02$.
+
+\section{The Reverse Process}\label{sec:reverse-process}
+
+If we could sample from the reverse transitions, generation would be easy: draw $x_T\sim\cN(0,I)\approx q(x_T)$, then $x_{t-1}\sim q(x_{t-1}\given x_t)$ for $t=T,\dots,1$, and return $x_0$. But
+\[
+q(x_{t-1}\given x_t)=\int q(x_{t-1}\given x_t,x_0)\,q(x_0\given x_t)\dd x_0
+\]
+involves the unknown data distribution through $q(x_0\given x_t)$ and is intractable. When $\beta_t$ is small, however, a single forward step barely moves $x$, and the reverse step is approximately Gaussian as well. This motivates a Gaussian model for it.
+
+\begin{definition}[Reverse Process]
+The \emph{reverse process} is the Markov chain
+\[
+p_\theta(x_{0:T})=p(x_T)\prod_{t=1}^Tp_\theta(x_{t-1}\given x_t),\qquad p(x_T)=\cN(0,I),\qquad p_\theta(x_{t-1}\given x_t)=\cN\big(\mu_\theta(x_t,t),\ \sigma_t^2I\big),
+\]
+where the mean $\mu_\theta$ is a neural network with parameters $\theta$ and the variances $\sigma_t^2$ are fixed.
+\end{definition}
+
+The marginal $p_\theta(x_0)=\int p_\theta(x_{0:T})\dd x_{1:T}$ is the generative model. The intermediate states $x_1,\dots,x_T$ play the role of latent variables, which suggests training by variational inference. A key ingredient is that, although $q(x_{t-1}\given x_t)$ is intractable, the reverse step becomes tractable once we also condition on the clean data point.
+
+\begin{proposition}[Forward Posterior]\label{prop:forward-posterior}
+For $t\ge2$, $q(x_{t-1}\given x_t,x_0)=\cN\big(\tilde\mu_t(x_t,x_0),\ \tilde\beta_tI\big)$ with
+\[
+\tilde\mu_t(x_t,x_0)=\frac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1-\bar\alpha_t}\,x_0+\frac{\sqrt{\alpha_t}\,(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}\,x_t,\qquad \tilde\beta_t=\frac{1-\bar\alpha_{t-1}}{1-\bar\alpha_t}\,\beta_t.
+\]
+\end{proposition}
+
+By Bayes' rule and the Markov property, $q(x_{t-1}\given x_t,x_0)\propto q(x_t\given x_{t-1})\,q(x_{t-1}\given x_0)$, a product of two Gaussian densities in $x_{t-1}$; completing the square gives the result. It is an instance of the linear-Gaussian posterior of \cref{prop:linear-gaussian}: the prior is $q(x_{t-1}\given x_0)$ from \cref{prop:diffusion-marginal}, and the observation is $x_t=\sqrt{\alpha_t}\,x_{t-1}+$ noise. The posterior mean is a weighted average of the clean image and the current noisy image.
+
+\section{Training by the Variational Bound}\label{sec:diffusion-elbo}
+
+Treat $x_{1:T}$ as latent variables and the forward process $q(x_{1:T}\given x_0)$ as the variational distribution. The ELBO identity of \cref{sec:elbo} reads
+\[
+\log p_\theta(x_0)=\E_{x_{1:T}\sim q}\Big[\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}\given x_0)}\Big]+\KL\big(q(x_{1:T}\given x_0)\,\big\|\,p_\theta(x_{1:T}\given x_0)\big).
+\]
+Since the KL term is nonnegative, minimizing
+\[
+\cL:=\E_{x_{0:T}\sim q}\Big[\log\frac{q(x_{1:T}\given x_0)}{p_\theta(x_{0:T})}\Big]\ \ge\ \E_{x_0\sim q}\big[-\log p_\theta(x_0)\big]
+\]
+minimizes an upper bound on the negative log-likelihood. Unlike in a VAE, the variational distribution has no parameters: only the decoder $p_\theta$ is trained.
+
+\begin{proposition}[Decomposition of the Bound]\label{prop:diffusion-bound}
+\[
+\cL=\E_q\Big[\underbrace{\KL\big(q(x_T\given x_0)\,\|\,p(x_T)\big)}_{L_T}+\sum_{t=2}^T\underbrace{\KL\big(q(x_{t-1}\given x_t,x_0)\,\|\,p_\theta(x_{t-1}\given x_t)\big)}_{L_{t-1}}\ \underbrace{-\log p_\theta(x_0\given x_1)}_{L_0}\Big].
+\]
+\end{proposition}
+
+The derivation rewrites each forward factor with $t\ge2$ by Bayes' rule,
+\[
+q(x_t\given x_{t-1})=\frac{q(x_{t-1}\given x_t,x_0)\,q(x_t\given x_0)}{q(x_{t-1}\given x_0)};
+\]
+in the product over $t$ the ratios $q(x_t\given x_0)/q(x_{t-1}\given x_0)$ telescope, leaving $q(x_T\given x_0)/q(x_1\given x_0)$, and the remaining factor $q(x_1\given x_0)$ cancels against the $t=1$ term. The decomposition turns one intractable objective into a sum of local comparisons, each between two Gaussians. The term $L_T$ contains no parameters and is ignored. Each $L_{t-1}$ asks the learned reverse step to match the tractable forward posterior of \cref{prop:forward-posterior}; since both are Gaussian with fixed isotropic covariances,
+\[
+L_{t-1}=\E_q\Big[\frac{1}{2\sigma_t^2}\,\big\|\tilde\mu_t(x_t,x_0)-\mu_\theta(x_t,t)\big\|^2\Big]+\text{const}.
+\]
+
+\subsection{Predicting the Noise}
+
+Substituting $x_0=\big(x_t-\sqrt{1-\bar\alpha_t}\,\varepsilon\big)/\sqrt{\bar\alpha_t}$ from \cref{prop:diffusion-marginal} into $\tilde\mu_t$ gives
+\[
+\tilde\mu_t(x_t,x_0)=\frac{1}{\sqrt{\alpha_t}}\Big(x_t-\frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\varepsilon\Big).
+\]
+The target mean is the current point minus a multiple of the noise that was added. Since $x_t$ is known at sampling time, the network only has to predict the noise. We therefore parametrize
+\begin{equation}\label{eq:eps-param}
+\mu_\theta(x_t,t)=\frac{1}{\sqrt{\alpha_t}}\Big(x_t-\frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\varepsilon_\theta(x_t,t)\Big)
+\end{equation}
+with a \emph{noise predictor} $\varepsilon_\theta$, and the loss becomes
+\[
+L_{t-1}=\lambda_t\,\E_{x_0\sim q,\ \varepsilon\sim\cN(0,I)}\Big[\big\|\varepsilon_\theta\big(\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon,\ t\big)-\varepsilon\big\|^2\Big],\qquad \lambda_t=\frac{\beta_t^2}{2\sigma_t^2\,\alpha_t\,(1-\bar\alpha_t)}.
+\]
+
+\begin{remark}
+The slides write the weight as $\beta_t^2/\big(2\sigma_t^2\alpha_t(1-\alpha_t)\big)$. Squaring the coefficient of $\varepsilon$ in $\tilde\mu_t$ shows that the last factor is $1-\bar\alpha_t$, not $1-\alpha_t$.
+\end{remark}
+
+Ho et al.\ (2020) observed that samples improve if the weights are simply dropped, $\lambda_t=1$, giving the \emph{simplified loss}
+\[
+L_{\mathrm{simple}}(\theta)=\E_{t\sim\mathrm{Unif}\{1,\dots,T\},\ x_0\sim q,\ \varepsilon\sim\cN(0,I)}\Big[\big\|\varepsilon_\theta\big(\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon,\ t\big)-\varepsilon\big\|^2\Big].
+\]
+Training is a least-squares regression: corrupt a data point with a random amount of noise and ask the network to recover the noise. Dropping $\lambda_t$ reweights the noise levels and puts more emphasis on the harder, noisier ones. The resulting method is the \emph{denoising diffusion probabilistic model} (DDPM).
+
+\begin{remark}[Connection to the Reparameterization Trick]
+Writing $x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$ is the reparameterization trick of \cref{sec:reparam}: the expectation over $x_t\sim q(x_t\given x_0)$ becomes an expectation over parameter-free noise $\varepsilon$. Each training step draws one $t$ and one $\varepsilon$ per data point, so the gradient is an unbiased Monte Carlo estimate of $\nabla_\theta L_{\mathrm{simple}}$, as in stochastic variational inference (\cref{alg:svi}).
+\end{remark}
+
+\section{The DDPM Algorithms}\label{sec:ddpm}
+
+\begin{algorithm}[H]
+\caption{DDPM Training}\label{alg:ddpm-train}
+\begin{algorithmic}[1]
+\Input{Training data, noise schedule $\beta_1,\dots,\beta_T$ with $\bar\alpha_t=\prod_{s\le t}(1-\beta_s)$, noise-prediction network $\varepsilon_\theta(x,t)$, optimizer with learning rate $\eta$.}
+\Repeat
+  \State Sample a data point $x_0$ (in practice a minibatch).
+  \State $t\sim\mathrm{Unif}\{1,\dots,T\}$; \quad $\varepsilon\sim\cN(0,I)$
+  \State $x_t\gets\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$ \Comment{\cref{prop:diffusion-marginal}}
+  \State $\theta\gets\theta-\eta\,\nabla_\theta\big\|\varepsilon_\theta(x_t,t)-\varepsilon\big\|^2$
+\Until{converged}
+\Output{Noise predictor $\varepsilon_\theta$.}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{DDPM Sampling}\label{alg:ddpm-sample}
+\begin{algorithmic}[1]
+\Input{Trained noise predictor $\varepsilon_\theta$, schedule $\beta_t$, $\alpha_t=1-\beta_t$, $\bar\alpha_t$, reverse variances $\sigma_t^2$.}
+\State $x_T\sim\cN(0,I)$
+\For{$t=T,\dots,1$}
+  \State $z\sim\cN(0,I)$ if $t>1$, else $z\gets0$
+  \State $x_{t-1}\gets\dfrac{1}{\sqrt{\alpha_t}}\Big(x_t-\dfrac{1-\alpha_t}{\sqrt{1-\bar\alpha_t}}\,\varepsilon_\theta(x_t,t)\Big)+\sigma_tz$ \Comment{sample from $p_\theta(x_{t-1}\given x_t)$, \eqref{eq:eps-param}}
+\EndFor
+\Output{A sample $x_0$.}
+\end{algorithmic}
+\end{algorithm}
+
+Training touches a single random noise level per example and never runs the chain; sampling runs the whole reverse chain, one network evaluation per step. No noise is added at the last step, so that the output is the predicted mean.
+
+The main design choices are as follows. The noise predictor $\varepsilon_\theta(x_t,t)$ is a U-Net, a convolutional encoder--decoder with residual blocks (\cref{sec:attention}) and self-attention layers; its weights are shared across all time steps, and $t$ enters through an embedding similar to the positional encoding of \cref{sec:transformer}. The variances are fixed, commonly $\sigma_t^2=\beta_t$ (or $\sigma_t^2=\tilde\beta_t$); a learned covariance $\Sigma_\theta(x_t,t)$ is also possible. Better schedules than the linear one, such as the cosine schedule of Nichol and Dhariwal (2021), further reduce the loss.
+
+\begin{remark}[Connection to Langevin Dynamics and MCMC]\label{rem:ddpm-langevin}
+The score of the forward marginal is $\nabla_{x_t}\log q(x_t\given x_0)=-(x_t-\sqrt{\bar\alpha_t}\,x_0)/(1-\bar\alpha_t)=-\varepsilon/\sqrt{1-\bar\alpha_t}$, and the minimizer of the noise-prediction loss is $\E[\varepsilon\given x_t]=-\sqrt{1-\bar\alpha_t}\,\nabla_{x_t}\log q(x_t)$. So the trained network estimates the score $s_\theta(x_t,t)=-\varepsilon_\theta(x_t,t)/\sqrt{1-\bar\alpha_t}$, and the update of \cref{alg:ddpm-sample} becomes
+\[
+x_{t-1}=\frac{1}{\sqrt{\alpha_t}}\big(x_t+\beta_t\,s_\theta(x_t,t)\big)+\sigma_tz.
+\]
+This is a small step up the gradient of the log-density plus Gaussian noise, the structure of a Langevin step $x\gets x+\tfrac h2\nabla\log p(x)+\sqrt h\,z$. Like HMC (\cref{alg:hmc}), it uses gradients of the log target to move toward high-density regions. Unlike MCMC, the target changes from step to step, from pure noise toward the data distribution, and the chain is run for a fixed number of steps rather than to stationarity. Learning the score directly from noised data is \emph{denoising score matching} (Vincent, 2011), and \emph{score-based generative modeling} (Song et al., 2021) gives the continuous-time view of the same model.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+Diffusion models produce samples of very high quality and diversity, and their training is stable: it is plain least-squares regression on a fixed target, with no adversarial game and no learned encoder that can collapse. The main drawback is sampling cost: generating one sample requires $T$ sequential network evaluations ($T=1000$ in the original model), compared with a single pass for a VAE or a GAN. The likelihood is only bounded, not computed exactly.
+\end{notebox}
+
+\section{Diffusion Models and Variational Autoencoders}\label{sec:diffusion-vae}
+
+Both models are trained with an ELBO, and both generate by decoding an isotropic Gaussian sample. A diffusion model is a VAE with $T$ layers of latent variables in which the encoder is fixed and the decoder is shared across layers.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+ & VAE (\cref{sec:vae}) & Diffusion model \\
+\midrule
+Latent variables & one code $z$, lower-dimensional than $x$ & $x_1,\dots,x_T$, each of the same dimension as $x_0$ \\
+Encoder & learned, $q_\phi(z\given x)$ & fixed forward process $q(x_{1:T}\given x_0)$ \\
+Decoder & learned, $p_\theta(x\given z)$ & learned reverse steps $p_\theta(x_{t-1}\given x_t)$, one network for all $t$ \\
+Prior & $\cN(0,I)$ & $\cN(0,I)$ for $x_T$ \\
+Objective & ELBO: reconstruction $+$ KL & ELBO, simplified to noise-prediction least squares \\
+Sampling & one decoder pass & $T$ sequential network passes \\
+Typical samples & fast but often blurry & slow but sharp and diverse \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Fixing the encoder removes the hardest part of VAE training, the balance between encoder and decoder, and the small Gaussian steps make every reverse transition easy to model, at the price of many steps.
+
+\section{Conditional Generation and Guidance}\label{sec:guidance}
+
+The model so far generates unconditional samples. Text-to-image generation needs samples conditioned on a caption, a class label, or another image. With training pairs $(x_0,y)$, the conditional reverse process is
+\[
+p_\theta(x_{0:T}\given y)=p(x_T)\prod_{t=1}^Tp_\theta(x_{t-1}\given x_t,y),\qquad p_\theta(x_{t-1}\given x_t,y)=\cN\big(\mu_\theta(x_t,t,y),\ \Sigma_\theta(x_t,t,y)\big),
+\]
+and the bound of \cref{prop:diffusion-bound} is unchanged except that $y$ is fed to every reverse step. How $y$ enters the U-Net depends on its type: a class label is typically added as an embedding, and a caption is typically injected through cross-attention to the embeddings of a text encoder (\cref{sec:attention}).
+
+Plain conditioning often follows $y$ too weakly. \emph{Guidance} strengthens it. The idea comes from Bayes' rule for scores,
+\[
+\nabla_{x_t}\log p(x_t\given y)=\nabla_{x_t}\log p(x_t)+\nabla_{x_t}\log p(y\given x_t),
+\]
+in which the second term is scaled up by a factor $s>1$, as if sampling from a distribution proportional to $p(x_t)\,p(y\given x_t)^s$ that concentrates on inputs the classifier finds unambiguous.
+
+\subsection{Classifier Guidance}
+
+Dhariwal and Nichol (2021) train a separate classifier $p_\phi(y\given x_t)$ on noisy images at all noise levels and add its log-gradient to the mean of each reverse step.
+
+\begin{algorithm}[H]
+\caption{Classifier-Guided Diffusion Sampling}\label{alg:classifier-guidance}
+\begin{algorithmic}[1]
+\Input{Diffusion model with reverse mean and covariance $\mu_\theta(x_t,t)$, $\Sigma_\theta(x_t,t)$; classifier $p_\phi(y\given x_t)$; class label $y$; guidance scale $s$.}
+\State $x_T\sim\cN(0,I)$
+\For{$t=T,\dots,1$}
+  \State $\mu\gets\mu_\theta(x_t,t)$, \quad $\Sigma\gets\Sigma_\theta(x_t,t)$
+  \State $x_{t-1}\sim\cN\big(\mu+s\,\Sigma\,\nabla_{x_t}\log p_\phi(y\given x_t),\ \Sigma\big)$
+\EndFor
+\Output{A sample $x_0$ conditioned on $y$.}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Classifier-Free Guidance}
+
+Training a classifier on noisy images is a burden. \emph{Classifier-free guidance} (Ho and Salimans, 2022) instead trains a conditional and an unconditional model simultaneously; in practice one network $\varepsilon_\theta(x_t,t,y)$ does both, by replacing $y$ with a null token $\varnothing$ for a random fraction of the training examples. Bayes' rule provides an implicit classifier, $p(y\given x_t)\propto p(x_t\given y)/p(x_t)$, so
+\[
+\nabla_{x_t}\log p(y\given x_t)=\nabla_{x_t}\log p(x_t\given y)-\nabla_{x_t}\log p(x_t).
+\]
+By \cref{rem:ddpm-langevin}, scores are proportional to noise predictions, with factor $-1/\sqrt{1-\bar\alpha_t}$. The guided score $\nabla\log p(x_t)+s\,\nabla\log p(y\given x_t)$ therefore corresponds to the guided noise prediction in line~3 below.
+
+\begin{algorithm}[H]
+\caption{Classifier-Free Guided Sampling}\label{alg:cfg-sample}
+\begin{algorithmic}[1]
+\Input{Noise predictor $\varepsilon_\theta(x_t,t,y)$ trained with random label dropout, condition $y$, guidance scale $s\ge0$, schedule as in \cref{alg:ddpm-sample}.}
+\State $x_T\sim\cN(0,I)$
+\For{$t=T,\dots,1$}
+  \State $\tilde\varepsilon\gets\varepsilon_\theta(x_t,t,\varnothing)+s\,\big(\varepsilon_\theta(x_t,t,y)-\varepsilon_\theta(x_t,t,\varnothing)\big)$
+  \State $z\sim\cN(0,I)$ if $t>1$, else $z\gets0$
+  \State $x_{t-1}\gets\dfrac{1}{\sqrt{\alpha_t}}\Big(x_t-\dfrac{1-\alpha_t}{\sqrt{1-\bar\alpha_t}}\,\tilde\varepsilon\Big)+\sigma_tz$
+\EndFor
+\Output{A sample $x_0$ conditioned on $y$.}
+\end{algorithmic}
+\end{algorithm}
+
+With $s=0$ the sampler ignores $y$, with $s=1$ it is the plain conditional model, and with $s>1$ the condition is enforced more strongly. The guidance scale controls a trade-off between sample quality and diversity: larger $s$ gives sharper, more prototypical images that match the caption closely, and less variety among them. Conditioning need not be on text; image-to-image diffusion models (for example Palette, Saharia et al., 2022) condition on another image for colorization, inpainting, uncropping, and restoration.
+
+\section{Trade-offs in Generative Modeling}\label{sec:generative-tradeoffs}
+
+Three properties are desirable in a generative model: high-quality samples, fast sampling, and coverage of all modes of the data (diversity). The main families each achieve two of them (Xiao et al., 2021). GANs give high-quality samples quickly but tend to miss modes. VAEs and normalizing flows sample quickly and cover the modes, but their samples are of lower quality. Diffusion models achieve quality and coverage, but sample slowly. Much current research accelerates diffusion sampling to escape this trilemma. The probability flow ODE (Song et al., 2021), a deterministic counterpart of the reverse process, is one route to fewer steps.
+
+\begin{notebox}{Looking back}
+A small number of ideas carry the whole book. \emph{Likelihood and Bayes' rule} define estimators from least squares and logistic regression (\cref{ch:linreg,ch:classification}) to mixtures and language models (\cref{ch:latent,ch:attention}), and posterior distributions from Bayesian linear regression and Gaussian processes (\cref{ch:shrinkage,ch:kernels}) to latent variable models. \emph{Gaussian algebra} (\cref{sec:gaussian}) gives closed forms for LDA, Bayesian regression, GPs, probabilistic PCA, and both processes of a diffusion model. \emph{Controlling complexity}, through the bias--variance trade-off (\cref{sec:bias-variance}), shrinkage, pruning, averaging, and cross-validation, separates learning from memorizing. When exact inference is impossible (\cref{ch:inference}), we either \emph{sample}, by Monte Carlo and MCMC (\cref{ch:mcmc}), or \emph{optimize} a KL divergence through the ELBO (\cref{ch:vi}); the ELBO then reappears in EM, VAEs, and diffusion models. Underneath all of it runs \emph{gradient-based optimization} (\cref{ch:optimization}), made practical for networks by backpropagation (\cref{ch:nn}). Diffusion models use nearly every one of these ideas at once: a Gaussian Markov chain, an ELBO, a reparameterized Monte Carlo gradient, least-squares regression, and a deep network trained by SGD.
+\end{notebox}

@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# LaTeX intermediate files (rebuild with latexmk; see notes/README.md)
+notes/build/
+
+# OS
+.DS_Store

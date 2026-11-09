@@ -1,0 +1,243 @@
+\chapter{Probabilistic Models and Estimation}\label{ch:probability}
+
+\Cref{ch:learning} showed that the best predictor is a summary of the conditional distribution of the response given the inputs. To learn it we need two things: families of distributions that are flexible enough to describe the data yet simple enough to estimate, and principles for choosing a member of the family given data. This chapter supplies both. \Cref{sec:prob-models} sets up the probabilistic viewpoint of STA 414, in which a model is a joint distribution over observed and unobserved variables. \Cref{sec:mle} introduces maximum likelihood, the estimation principle behind least squares, logistic regression, and most of the models in these notes. \Cref{sec:expfam} describes exponential families, the class of distributions for which maximum likelihood is especially well behaved. \Cref{sec:bayes-inference} treats parameters as random and introduces priors, posteriors, MAP estimation, and predictive distributions. \Cref{sec:gaussian} collects the facts about the multivariate Gaussian that are used again and again in later chapters.
+
+\section{Probabilistic Models}\label{sec:prob-models}
+
+Consider a random vector $X=(X_1,\dots,X_d)$ whose components may be observed or only partially observed. A \emph{probabilistic (generative) model} relates all the variables through their joint distribution $p(x)=p(x_1,\dots,x_d)$. Once the joint is available, every question about the variables is answered by marginalizing and conditioning. For a supervised problem with inputs $x$ and a label $c$, the classifier of \cref{def:bayes-classifier} needs $p(c\given x)=p(x,c)/\sum_{c'}p(x,c')$, and a regression needs $p(y\given x)=p(x,y)/\int p(x,y)\dd y$.
+
+\begin{remark}[Bayes' Rule and Base Rates]\label{rem:covid}
+The STA 414 tutorial illustrates conditioning with a diagnostic test. Let $H=1$ if a person is infected and $Y=1$ if the test is positive, with prevalence $p(H=1)=0.1$, sensitivity $p(Y=1\given H=1)=0.875$, and specificity $p(Y=0\given H=0)=0.975$. These three numbers determine the joint distribution of $(Y,H)$, and Bayes' rule gives
+\begin{gather*}
+p(H=1\given Y=1)=\frac{p(Y=1\given H=1)\,p(H=1)}{p(Y=1)}=\frac{0.875\cdot0.1}{0.11}\approx0.795,\\
+p(H=1\given Y=0)=\frac{p(Y=0\given H=1)\,p(H=1)}{p(Y=0)}=\frac{0.125\cdot0.1}{0.89}\approx0.014.
+\end{gather*}
+With a prevalence of $1\%$ instead, a positive test raises the probability of infection only to about $26\%$: when the condition is rare, a positive result is more often a false positive than a true one. The example also shows that a distribution can be identified with a few parameters, and that marginalizing and conditioning are operations on those parameters.
+\end{remark}
+
+The distinction between observed and unobserved variables organizes much of the course. In supervised classification we observe pairs $(x_i,c_i)\iidsim p(x,c)$. If the data are still generated from $p(x,c)$ but we observe only $x_i$, the label becomes a \emph{latent variable}, usually called a cluster, and the data have the marginal distribution $p(x)=\sum_cp(x,c)$. Mixture models (\cref{sec:gmm}) are of this form, and fitting models with latent variables is the main subject of Part~III.
+
+To make learning feasible we make two modeling assumptions. First, the observations $x_1,\dots,x_n$ are i.i.d.\ draws from an unknown true distribution $p^*$. Second, we search for an approximation of $p^*$ in a \emph{parametric family} $\cF=\{p(x\given\theta):\theta\in\Theta\}$, for example the Gaussians $\{\cN(\theta,1):\theta\in\R\}$. The parameter space $\Theta$ may still be very high-dimensional, as it is for a neural network.
+
+\section{Maximum Likelihood Estimation}\label{sec:mle}
+
+\begin{definition}[Likelihood and Maximum Likelihood Estimate]\label{def:mle}
+For i.i.d.\ data $\cD=\{x_1,\dots,x_n\}$ and a parametric family $p(x\given\theta)$, the \emph{likelihood} and \emph{log-likelihood} are
+\[
+L(\theta;\cD)=p(\cD\given\theta)=\prod_{i=1}^np(x_i\given\theta),\qquad \ell(\theta;\cD)=\log L(\theta;\cD)=\sum_{i=1}^n\log p(x_i\given\theta).
+\]
+The \emph{maximum likelihood estimate} (MLE) is $\hat\theta_{\mathrm{MLE}}=\argmax_{\theta\in\Theta}\ell(\theta;\cD)$.
+\end{definition}
+
+For discrete data, $L(\theta;\cD)$ is the probability of observing exactly $\cD$ if it had been generated with parameter $\theta$, so the MLE picks the parameter under which the data are most probable. Maximizing the log-likelihood gives the same answer and is easier, because the product becomes a sum. For a supervised model $p(y\given x,\theta)$ the inputs are treated as fixed and the conditional log-likelihood $\sum_i\log p(y_i\given x_i,\theta)$ is maximized instead.
+
+\begin{algorithm}[H]
+\caption{Maximum Likelihood Estimation}\label{alg:mle}
+\begin{algorithmic}[1]
+\Input{Data $x_1,\dots,x_n$ (or pairs $(x_i,y_i)$); parametric family $p(x\given\theta)$, $\theta\in\Theta$.}
+\State Form $\ell(\theta)=\sum_{i=1}^n\log p(x_i\given\theta)$ and drop the terms that do not depend on $\theta$.
+\State Compute the gradient $\nabla_\theta\ell$, adding a Lagrange multiplier for each equality constraint on $\theta$ (for example $\sum_kq_k=1$).
+\If{$\nabla_\theta\ell(\theta)=0$ can be solved explicitly}
+  \State $\hat\theta\gets$ the solution, after checking that it is a maximum and comparing with the boundary of $\Theta$.
+\Else
+  \State $\hat\theta\gets$ the result of gradient descent on $-\ell$ (\cref{alg:gd}) or its stochastic version (\cref{alg:sgd}).
+\EndIf
+\Output{The estimate $\hat\theta_{\mathrm{MLE}}$ and the fitted distribution $p(x\given\hat\theta_{\mathrm{MLE}})$.}
+\end{algorithmic}
+\end{algorithm}
+
+The examples worked out in the two courses cover all branches of the algorithm.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Model & MLE & Remark \\
+\midrule
+Bernoulli$(\theta)$, $x_i\in\{0,1\}$ & $\hat\theta=\frac1n\sum_ix_i$ & the fraction of heads \\
+Categorical$(q_1,\dots,q_K)$ & $\hat q_k=n_k/n$, with $n_k=\sum_i\ind\{x_i=k\}$ & needs a Lagrange multiplier for $\sum_kq_k=1$ \\
+$\cN(\mu,\sigma^2)$ & $\hat\mu=\bar x$, $\hat\sigma^2=\frac1n\sum_i(x_i-\bar x)^2$ & the variance estimate divides by $n$, not $n-1$ \\
+Uniform$(0,\theta)$ & $\hat\theta=\max_ix_i$ & $L(\theta)=\theta^{-n}\ind\{\theta\ge\max_ix_i\}$ is not differentiable at the maximum \\
+$y_i=x_i\T\beta+\varepsilon_i$, $\varepsilon_i\iidsim\cN(0,\sigma^2)$ & $\hat\beta=(X\T X)^{-1}X\T y$ & ordinary least squares (\cref{sec:ols}) \\
+$\Prob(y_i=1\given x_i)=\frac{1}{1+e^{-x_i\T\beta}}$ & no closed form & solved iteratively (\cref{alg:logistic-fit}) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{remark}[Negative Log-Likelihoods Are Losses]\label{rem:nll-loss}
+Maximum likelihood connects the losses of \cref{ch:learning} with probability models. Under Gaussian noise,
+\[
+-\sum_{i=1}^n\log p(y_i\given x_i,\beta)=\frac{1}{2\sigma^2}\norm{y-X\beta}^2+\text{const},
+\]
+so least squares is maximum likelihood. Under a Bernoulli model with $p_i=\Prob(y_i=1\given x_i)$, the negative log-likelihood is the cross-entropy $-\sum_i\big(y_i\log p_i+(1-y_i)\log(1-p_i)\big)$, which becomes the logistic loss of \cref{sec:logistic}. Choosing a noise model is therefore the same as choosing a loss, and the probabilistic view tells us which loss is natural for which type of response.
+\end{remark}
+
+\begin{remark}[MLE Minimizes a KL Divergence]\label{rem:mle-kl}
+By the law of large numbers, $\frac1n\ell(\theta;\cD)\to\E_{p^*}[\log p(X\given\theta)]=-\KL(p^*\,\|\,p_\theta)-\cH(p^*)$, where $\cH(p^*)$ does not depend on $\theta$. Maximum likelihood therefore looks for the member of the family closest to the truth in the Kullback--Leibler divergence $\KL(p^*\,\|\,p_\theta)$. This direction of the KL divergence reappears as the ``moment projection'' in variational inference (\cref{sec:kl}).
+\end{remark}
+
+\section{Sufficient Statistics and Exponential Families}\label{sec:expfam}
+
+In the Bernoulli example the likelihood depends on the data only through the count $\sum_ix_i$; any two data sets with the same count lead to the same inference about $\theta$.
+
+\begin{definition}[Sufficient Statistic]\label{def:sufficient}
+A statistic $T(x)$ is \emph{sufficient} for $\theta$ in the model $p(x\given\theta)$ if it conveys all the information about $\theta$ that the full data contain. By the Fisher--Neyman factorization theorem, $T$ is sufficient if and only if $p(x\given\theta)=h(x)\,g_\theta\big(T(x)\big)$ for some functions $h$, which does not depend on $\theta$, and $g_\theta$.
+\end{definition}
+
+\begin{definition}[Exponential Family]\label{def:expfam}
+A family of densities (or probability mass functions) is an \emph{exponential family} if it can be written as
+\[
+p(x\given\eta)=h(x)\exp\big\{\eta\T T(x)-A(\eta)\big\},
+\]
+where $T(x)$ is the vector of sufficient statistics, $\eta$ the \emph{natural parameter}, $h(x)$ the base measure, and $A(\eta)=\log\int h(x)\exp\{\eta\T T(x)\}\dd x$ the \emph{log-partition function}, which makes the density integrate to one.
+\end{definition}
+
+The parameter interacts with the data only through $\eta\T T(x)$, so $T$ is sufficient by the factorization theorem. Many familiar distributions are exponential families: Gaussian, Bernoulli, categorical, Poisson, exponential, gamma, beta, and Dirichlet.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Distribution & $T(x)$ & $\eta$ & $A(\eta)$ \\
+\midrule
+Bernoulli$(\theta)$ & $x$ & $\log\frac{\theta}{1-\theta}$ (log-odds) & $\log(1+e^\eta)$ \\
+Categorical$(q_1,\dots,q_K)$ & $\big(\ind\{x=k\}\big)_{k=1}^{K-1}$ & $\eta_k=\log\frac{q_k}{q_K}$ & $\log\big(1+\sum_{k<K}e^{\eta_k}\big)$ \\
+$\cN(\mu,\sigma^2)$ & $(x,\,x^2)$ & $\big(\frac{\mu}{\sigma^2},\,-\frac{1}{2\sigma^2}\big)$ & $-\frac{\eta_1^2}{4\eta_2}-\frac12\log(-2\eta_2)$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Two entries of the table reappear later under other names. Inverting the Bernoulli natural parameter gives $\theta=1/(1+e^{-\eta})$, the logistic (sigmoid) function; logistic regression (\cref{sec:logistic}) is the model in which the log-odds $\eta$ is linear in $x$. Inverting the categorical one gives $q_k=e^{\eta_k}/(1+\sum_{j<K}e^{\eta_j})$, the softmax function with $\eta_K=0$ as reference, which is the link of multinomial logistic regression (\cref{sec:softmax-regression}). The categorical family must be written with $K-1$ free parameters as in the table. With all $K$ parameters $\eta_k=\log q_k$ the components of $\eta$ are tied by $\sum_ke^{\eta_k}=1$, and the moment formulas below do not apply.
+
+\begin{proposition}[Moments from the Log-Partition Function]\label{prop:expfam-moments}
+For an exponential family, $\nabla A(\eta)=\E_\eta[T(X)]$ and $\nabla^2A(\eta)=\Cov_\eta\big(T(X)\big)$. In particular, $A$ is convex.
+\end{proposition}
+
+The first identity follows by differentiating $\int h(x)\exp\{\eta\T T(x)-A(\eta)\}\dd x=1$ with respect to $\eta$. For the Bernoulli family, $A'(\eta)=e^\eta/(1+e^\eta)=\theta$ is the mean and $A''(\eta)=\theta(1-\theta)$ the variance.
+
+\begin{proposition}[MLE in an Exponential Family]\label{prop:expfam-mle}
+For i.i.d.\ data the log-likelihood is $\ell(\eta)=\sum_i\log h(x_i)+\eta\T\sum_iT(x_i)-nA(\eta)$, a concave function of $\eta$. The MLE solves the \emph{moment-matching} equation
+\[
+\nabla A(\hat\eta_{\mathrm{MLE}})=\E_{\hat\eta}[T(X)]=\frac1n\sum_{i=1}^nT(x_i),
+\]
+and any solution is a global maximum.
+\end{proposition}
+
+The fitted model reproduces the empirical averages of the sufficient statistics. The equation may have no explicit solution, but because $\ell$ is concave, gradient ascent cannot get stuck in a spurious local maximum (\cref{sec:convexity}).
+
+\begin{remark}[Where Exponential Families Reappear]
+Exponential families are the common thread of several later topics: generalized linear models such as logistic regression (\cref{sec:logistic}); Markov random fields and the Ising model, whose clique potentials are exponentials of linear functions of sufficient statistics (\cref{sec:mrf,sec:ising}); Gaussian graphical models (\cref{sec:gaussian}); and the closed-form coordinate updates of mean-field variational inference (\cref{sec:mean-field}).
+\end{remark}
+
+\section{Bayesian Inference}\label{sec:bayes-inference}
+
+Maximum likelihood returns a single parameter value and ignores how uncertain it is. The Bayesian approach treats $\theta$ as a random variable with a \emph{prior} distribution $p(\theta)$, which encodes what is known before seeing the data, and updates it by Bayes' rule to the \emph{posterior}
+\[
+p(\theta\given\cD)=\frac{p(\cD\given\theta)\,p(\theta)}{p(\cD)}\propto p(\theta)\prod_{i=1}^np(x_i\given\theta),\qquad p(\cD)=\int p(\cD\given\theta)\,p(\theta)\dd\theta.
+\]
+The normalizing constant $p(\cD)$ is the \emph{marginal likelihood} or \emph{evidence}. The posterior can be used in two ways.
+
+\begin{definition}[MAP Estimate and Posterior Predictive]\label{def:map}
+The \emph{maximum a posteriori} (MAP) estimate is the posterior mode,
+\[
+\hat\theta_{\mathrm{MAP}}=\argmax_\theta\big[\log p(\cD\given\theta)+\log p(\theta)\big].
+\]
+The \emph{posterior predictive distribution} of a new observation averages the model over the posterior,
+\[
+p(x_{\mathrm{new}}\given\cD)=\int p(x_{\mathrm{new}}\given\theta)\,p(\theta\given\cD)\dd\theta.
+\]
+\end{definition}
+
+The MAP estimate is maximum likelihood with an additional term $\log p(\theta)$, which acts as a penalty that pulls the estimate toward values the prior considers plausible. The normalizer $p(\cD)$ is not needed to find the mode. Full Bayesian inference instead keeps the whole posterior and makes predictions by averaging over all parameter values that explain the data, weighted by how well they do. This smooths out the predictions and quantifies their uncertainty: the model ``knows what it doesn't know''.
+
+\begin{remark}[Worked Example: Beta--Bernoulli]\label{rem:beta-bernoulli}
+For coin flips $x_i\in\{0,1\}$ with $n_1$ heads and $n_0$ tails, take the prior $\theta\sim\mathrm{Beta}(a,b)$, with density proportional to $\theta^{a-1}(1-\theta)^{b-1}$. Multiplying by the likelihood $\theta^{n_1}(1-\theta)^{n_0}$ shows that the posterior is again a beta distribution,
+\[
+\theta\given\cD\sim\mathrm{Beta}(a+n_1,\,b+n_0).
+\]
+A prior with this property is called \emph{conjugate}. The prior acts like $a$ pseudo-heads and $b$ pseudo-tails. The three estimates are
+\[
+\hat\theta_{\mathrm{MLE}}=\frac{n_1}{n},\qquad
+\hat\theta_{\mathrm{MAP}}=\frac{n_1+a-1}{n+a+b-2},\qquad
+p(x_{\mathrm{new}}=1\given\cD)=\E[\theta\given\cD]=\frac{n_1+a}{n+a+b}.
+\]
+With little data the prior matters; after three heads in three flips the MLE predicts heads with certainty, while the posterior predictive does not. As $n\to\infty$ all three agree.
+\end{remark}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Approach & What is computed & Typical difficulty \\
+\midrule
+MLE & $\argmax_\theta\log p(\cD\given\theta)$ & an optimization problem; overfits with little data \\
+MAP & $\argmax_\theta[\log p(\cD\given\theta)+\log p(\theta)]$ & an optimization problem; a regularized MLE \\
+Full Bayes & $p(\theta\given\cD)$ and $\int p(x\given\theta)p(\theta\given\cD)\dd\theta$ & an integration problem; closed form only in conjugate cases \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{remark}[Connections]
+The MAP view explains regularization: with a Gaussian prior on regression coefficients, MAP estimation is ridge regression, and with a Laplace prior it is the lasso (\cref{sec:map-view}). Full Bayesian linear regression has a Gaussian posterior and predictive distribution in closed form (\cref{prop:blr-posterior,prop:blr-predictive}), and its kernelized version is the Gaussian process (\cref{sec:gp}). Outside conjugate models the posterior integral is intractable, and Part~III develops the two general ways to approximate it: sampling with Markov chain Monte Carlo (\cref{ch:mcmc}) and optimization with variational inference (\cref{ch:vi}).
+\end{remark}
+
+\section{The Multivariate Gaussian}\label{sec:gaussian}
+
+The Gaussian distribution is the workhorse of continuous probabilistic models, because sums, marginals, and conditionals of Gaussians are again Gaussian and can be computed with linear algebra.
+
+\begin{definition}[Multivariate Gaussian]\label{def:gaussian}
+For $\mu\in\R^m$ and a symmetric positive definite $\Sigma\in\R^{m\times m}$ (that is, $u\T\Sigma u>0$ for all $u\ne0$), $X\sim\cN(\mu,\Sigma)$ if $X$ has density
+\[
+\cN(x\given\mu,\Sigma)=\frac{1}{(2\pi)^{m/2}(\det\Sigma)^{1/2}}\exp\Big(-\frac12(x-\mu)\T\Sigma^{-1}(x-\mu)\Big).
+\]
+Then $\E[X]=\mu$ and $\Cov(X)=\Sigma$. The inverse covariance $\Lambda=\Sigma^{-1}$ is called the \emph{precision matrix}.
+\end{definition}
+
+\begin{proposition}[Marginals and Conditionals]\label{prop:gauss-cond}
+Partition $X=(X_A,X_B)\sim\cN(\mu,\Sigma)$ with $\mu=(\mu_A,\mu_B)$ and
+$\Sigma=\begin{pmatrix}\Sigma_{AA}&\Sigma_{AB}\\\Sigma_{BA}&\Sigma_{BB}\end{pmatrix}$. Then
+\begin{gather*}
+X_A\sim\cN(\mu_A,\Sigma_{AA}),\\
+X_A\given X_B=x_B\sim\cN\big(\mu_A+\Sigma_{AB}\Sigma_{BB}^{-1}(x_B-\mu_B),\ \Sigma_{AA}-\Sigma_{AB}\Sigma_{BB}^{-1}\Sigma_{BA}\big).
+\end{gather*}
+Moreover, for any matrix $A$ with $m$ columns, $AX\sim\cN(A\mu,A\Sigma A\T)$.
+\end{proposition}
+
+Marginalizing means deleting rows and columns. Conditioning shifts the mean linearly in the observed value and shrinks the covariance by a term that does not depend on $x_B$: observing $X_B$ always reduces uncertainty about $X_A$ by the same amount, whatever value is observed. This formula is the whole of Gaussian process regression (\cref{alg:gp-regression}).
+
+Independence can be read off the covariance and conditional independence off the precision: $X_i\indep X_j$ if and only if $\Sigma_{ij}=0$, and $X_i\indep X_j\given X_{\text{rest}}$ if and only if $\Lambda_{ij}=0$. Writing the density as $p(x)\propto\prod_s\exp\{-\frac12\Lambda_{ss}(x_s-\mu_s)^2\}\prod_{s<t}\exp\{-\Lambda_{st}(x_s-\mu_s)(x_t-\mu_t)\}$ shows that a Gaussian is a Markov random field whose edges are the nonzero entries of the precision matrix, a \emph{Gaussian graphical model} (\cref{sec:mrf}).
+
+\subsection{Completing the Square}
+
+The most useful computational fact about Gaussians is that a density whose logarithm is a quadratic function is Gaussian, with mean and covariance that can be read off the quadratic. Indeed, $\log\cN(w\given\mu,\Sigma)=-\frac12w\T\Sigma^{-1}w+w\T\Sigma^{-1}\mu+\text{const}$.
+
+\begin{algorithm}[H]
+\caption{Identifying a Gaussian by Completing the Square}\label{alg:complete-square}
+\begin{algorithmic}[1]
+\Input{An unnormalized log-density $\log p(w)$ known to be a quadratic function of $w\in\R^m$ (for example, log-prior plus log-likelihood in a linear-Gaussian model).}
+\State Expand $\log p(w)$ and collect the second-order and first-order terms in $w$, ignoring everything that does not depend on $w$:
+\Statex \hspace*{2.4em}$\log p(w)=-\frac12w\T Pw+w\T b+\text{const}$, with $P$ symmetric.
+\State Check that $P$ is positive definite (otherwise $p$ is not a normalizable Gaussian).
+\Output{$w\sim\cN(P^{-1}b,\,P^{-1})$: precision $P$, covariance $P^{-1}$, mean $P^{-1}b$.}
+\end{algorithmic}
+\end{algorithm}
+
+Applied to a Gaussian prior and a Gaussian likelihood that is linear in the unknown, the recipe gives the following result, which covers Bayesian linear regression, Gaussian processes, and probabilistic PCA.
+
+\begin{proposition}[Linear-Gaussian Model]\label{prop:linear-gaussian}
+Let $z\sim\cN(m,S)$ and $x\given z\sim\cN(Az+b,\Sigma)$. Then
+\begin{gather*}
+x\sim\cN\big(Am+b,\ \Sigma+ASA\T\big),\\
+z\given x\sim\cN\big(m',S'\big),\qquad S'=\big(S^{-1}+A\T\Sigma^{-1}A\big)^{-1},\quad m'=S'\big(A\T\Sigma^{-1}(x-b)+S^{-1}m\big).
+\end{gather*}
+\end{proposition}
+
+For the posterior, $\log p(z\given x)=\log p(z)+\log p(x\given z)+\text{const}$ has quadratic term $-\frac12z\T(S^{-1}+A\T\Sigma^{-1}A)z$ and linear term $z\T(S^{-1}m+A\T\Sigma^{-1}(x-b))$, and \cref{alg:complete-square} does the rest. The posterior precision is the prior precision plus the precision contributed by the data, and the posterior mean is a precision-weighted combination of the prior mean and the observation. For the marginal, $x=Az+b+\varepsilon$ is a linear function of the independent Gaussians $z$ and $\epsilon\sim\cN(0,\Sigma)$.
+
+\begin{remark}[Where the Gaussian Toolbox Is Used]\label{rem:gaussian-uses}
+Linear and quadratic discriminant analysis model each class by a Gaussian (\cref{sec:lda,sec:qda}). Bayesian linear regression applies \cref{prop:linear-gaussian} with $z$ the coefficients and $x$ the responses (\cref{prop:blr-posterior}). Gaussian process regression conditions a joint Gaussian with \cref{prop:gauss-cond} (\cref{sec:gp}). Mixtures of Gaussians (\cref{sec:gmm}) and probabilistic PCA (\cref{sec:ppca}) are latent variable models built from Gaussian pieces, the VAE uses Gaussian encoders and decoders (\cref{sec:vae}), and the forward process of a diffusion model is a chain of linear-Gaussian steps whose marginals follow from \cref{prop:linear-gaussian} (\cref{sec:forward-process}).
+\end{remark}
+
+\begin{notebox}{Limitations and what comes next}
+Maximum likelihood and MAP estimation turn learning into optimization, but closed-form solutions such as the sample mean or the least-squares formula are the exception. Logistic regression, neural networks, and most latent variable models require an iterative algorithm, and even when a closed form exists it may be too expensive to compute for large data. \Cref{ch:optimization} develops gradient descent and its stochastic version, the algorithms used to fit almost every model in these notes. Full Bayesian inference raises a harder problem, the computation of high-dimensional integrals, which is postponed to Part~III.
+\end{notebox}

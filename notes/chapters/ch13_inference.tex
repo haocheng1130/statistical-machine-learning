@@ -1,0 +1,251 @@
+\chapter{Exact Inference and Message Passing}\label{ch:inference}
+
+A graphical model (\cref{ch:pgm}) specifies a joint distribution over many variables through local factors. To use it we must answer questions about a few of the variables after observing some others: the probability of getting a job given a GPA of 3.1, the skill of a player given the outcomes of all games, the true value of a pixel given a noisy image. These questions are called \emph{inference} queries. \Cref{sec:inference-queries} states them precisely and explains why the naive computation is exponential in the number of variables. \Cref{sec:ve} presents variable elimination, which exploits the factorization to push sums inside products. On trees the same computation can be organized as messages passed along the edges, which gives all marginals at once (\cref{sec:bp}). On graphs with cycles the message updates can still be iterated, giving loopy belief propagation (\cref{sec:loopy-bp}), an approximate method illustrated by image denoising with an Ising model.
+
+\section{Inference Queries}\label{sec:inference-queries}
+
+Let $x=(x_1,\dots,x_N)$ be the variables of a graphical model, each taking $k$ values. Split them into three groups:
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+$x_E$ & the observed evidence, \\
+$x_F$ & the unobserved variables we want to infer, \\
+$x_R=x\setminus\{x_F,x_E\}$ & the remaining variables, extraneous to the query.
+\end{tabular}
+\end{center}
+The basic inference task is to compute the conditional distribution
+\begin{equation}\label{eq:inference-query}
+p(x_F\given x_E)=\frac{p(x_F,x_E)}{p(x_E)}=\frac{p(x_F,x_E)}{\sum_{x_F}p(x_F,x_E)},\qquad p(x_F,x_E)=\sum_{x_R}p(x_F,x_E,x_R).
+\end{equation}
+The extraneous variables $x_R$ must be marginalized out, and the denominator is obtained by one further sum over $x_F$. Two related queries are the \emph{marginal} $p(x_F)$ (no evidence) and the \emph{MAP assignment} $\argmax_{x_F,x_R}p(x_F,x_R\given x_E)$ of all unobserved variables, in which every sum is replaced by a maximum.
+
+Written out naively, the sum over $x_R$ has $k^{|R|}$ terms, so the cost is exponential in the number of variables. The factorization of the joint distribution is what makes inference feasible. Both kinds of graphical model can be written in the same form,
+\begin{equation}\label{eq:factor-form}
+p(x)=\frac1Z\prod_{C}\psi_C(x_C),
+\end{equation}
+with nonnegative \emph{factors} $\psi_C$. For a DAG (\cref{sec:dag}) the factors are the conditional probability tables $p(x_i\given x_{\mathrm{pa}(i)})$, one per scope $\{i\}\cup\mathrm{pa}(i)$, and $Z=1$. For an MRF (\cref{sec:mrf}) they are the clique potentials, and $Z$ is the partition function. The algorithms of this chapter work on the factor form and therefore apply to both. Observing $x_E=\bar x_E$ simply fixes the corresponding arguments of the factors at their observed values.
+
+\section{Variable Elimination}\label{sec:ve}
+
+\subsection{A Chain}
+
+Consider the chain $A\to B\to C\to D$, so that $p(A,B,C,D)=p(A)p(B\given A)p(C\given B)p(D\given C)$, and suppose we want the marginal $p(D)$. Summing the joint over all $(A,B,C)$ costs $O(k^4)$, and $O(k^n)$ for a chain of length $n$. Instead, use the distributive law to move each sum as far to the right as possible:
+\begin{align*}
+p(D)&=\sum_C p(D\given C)\sum_B p(C\given B)\underbrace{\sum_A p(A)p(B\given A)}_{=\,\tau(B)\,=\,p(B)}
+=\sum_C p(D\given C)\underbrace{\sum_B p(C\given B)\tau(B)}_{=\,\tau(C)\,=\,p(C)}.
+\end{align*}
+Each step sums one variable out of a product of two tables of size $k\times k$, which costs $O(k^2)$, and the whole computation costs $O(nk^2)$. This is dynamic programming: each intermediate result is computed once and reused.
+
+\subsection{The Algorithm}
+
+In general, eliminating a variable multiplies all factors that contain it, sums it out, and leaves a new \emph{intermediate factor} $\tau$ on the variables that appeared together with it. For example, in $p(A,B,C)=\sum_X p(X)p(A\given X)p(B\given A)p(C\given B,X)$,
+\[
+\sum_X\psi_1(X)\psi_2(A,X)\psi_3(A,B)\psi_4(X,B,C)=\psi_3(A,B)\underbrace{\sum_X\psi_1(X)\psi_2(A,X)\psi_4(X,B,C)}_{=\,\tau(A,B,C)}.
+\]
+Repeating this for every variable in $x_R$ in some order gives the following algorithm. Let $\Psi$ denote the current set of factors.
+
+\begin{algorithm}[H]
+\caption{Variable Elimination (Sum-Product)}\label{alg:variable-elimination}
+\begin{algorithmic}[1]
+\Input{Factors $\Psi=\{\psi_C\}$ of $p(x)\propto\prod_C\psi_C(x_C)$; evidence $x_E=\bar x_E$; query variables $x_F$; an elimination ordering $x_{j_1}\prec x_{j_2}\prec\dots\prec x_{j_r}$ of the remaining variables $x_R$.}
+\State \textbf{Restrict:} in every factor, fix the arguments in $x_E$ at their observed values $\bar x_E$.
+\For{$\ell=1,\dots,r$}
+  \State $\Psi_\ell\gets\{\psi\in\Psi:\ \psi\text{ depends on }x_{j_\ell}\}$
+  \State $\tau_\ell\gets\sum_{x_{j_\ell}}\prod_{\psi\in\Psi_\ell}\psi$ \Comment{a factor on the variables that share a factor with $x_{j_\ell}$}
+  \State $\Psi\gets(\Psi\setminus\Psi_\ell)\cup\{\tau_\ell\}$
+\EndFor
+\State $\tau(x_F)\gets\prod_{\psi\in\Psi}\psi$ \Comment{only $x_F$ is left}
+\Output{$p(x_F\given\bar x_E)=\tau(x_F)\big/\sum_{x_F}\tau(x_F)$.}
+\end{algorithmic}
+\end{algorithm}
+
+The final normalization handles both the evidence and the partition function: $\sum_{x_F}\tau(x_F)$ equals $p(\bar x_E)$ for a DAG and $Z\,p(\bar x_E)$ for an MRF. For a DAG with no evidence, $\tau(x_F)$ is already the marginal $p(x_F)$ and no normalization is needed. Replacing every sum by a maximum gives the max-product version, which computes $\max_{x_R}p(x_F,\bar x_E,x_R)$ and, with back-tracking of the maximizers, a MAP assignment.
+
+\begin{remark}[Barren Variables]
+In a DAG, a variable that is neither queried nor observed and has no descendants in $x_F\cup x_E$ can be deleted before elimination: summing out a leaf gives $\sum_{x_i}p(x_i\given x_{\mathrm{pa}(i)})=1$. In the tutorial example $p(x_1\given\bar x_6)$ for the DAG with factorization $p(x_1)p(x_2\given x_1)p(x_3\given x_1)p(x_4\given x_2)p(x_5\given x_3)p(x_6\given x_2,x_5)$, the variable $x_4$ drops out in this way, and eliminating $x_5,x_3,x_2$ in turn leaves $p(x_1)p(\bar x_6\given x_1)$, which is normalized over $x_1$ to give the answer.
+\end{remark}
+
+\subsection{Elimination Orderings and Cost}
+
+The ordering matters. The cost of eliminating $x_{j_\ell}$ is dominated by the size of the table $\prod_{\psi\in\Psi_\ell}\psi$, which is $k^{N_\ell}$ if $N_\ell$ variables appear in that sum (the eliminated variable and the variables it currently shares factors with).
+
+\begin{proposition}[Cost of Variable Elimination]\label{prop:ve-cost}
+With $m$ initial factors and $k$ states per variable, variable elimination runs in time $O\big(m\,k^{N_{\max}}\big)$, where $N_{\max}=\max_\ell N_\ell$ is the number of variables in the largest sum. Finding the ordering that minimizes $N_{\max}$ is NP-hard.
+\end{proposition}
+
+\subsubsection{Example: the Student Network}
+
+The slides use a DAG with eight variables (Coherence, Difficulty, Intelligence, Grade, SAT, Letter, Job, Happy) and factorization
+\[
+p(C,D,I,G,S,L,J,H)=p(C)p(D\given C)p(I)p(G\given D,I)p(L\given G)p(S\given I)p(J\given S,L)p(H\given J,G),
+\]
+so $m=8$. To compute $p(J)$ with the ordering $C,D,I,H,G,S,L$, the intermediate factors are
+\[
+\tau(D),\quad\tau(G,I),\quad\tau(S,G),\quad\tau(G,J),\quad\tau(J,L,S),\quad\tau(J,L),\quad\tau(J)=p(J).
+\]
+The largest sum is the one over $G$, which involves $\psi(L,G)\tau(S,G)\tau(G,J)$ and hence $N_G=4$ variables $(G,J,L,S)$; the cost is $O(8k^4)$ instead of $O(k^8)$. Since $H$ is a barren leaf, $\tau(G,J)=\sum_Hp(H\given G,J)=1$, so in this example $H$ could have been dropped at the start. In practice orderings are chosen by greedy heuristics, for example eliminating next the variable that creates the smallest new factor.
+
+\begin{remark}[Connection to Hidden Markov Models]
+On the chain of an HMM (\cref{sec:hmm}), eliminating the hidden states from the first to the last time step is the forward algorithm, and the max-product version is the Viterbi algorithm. Variable elimination is the general form of these dynamic programs.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+Variable elimination is exact, simple, and applies to any DAG or MRF. However, its cost is exponential in the size of the largest intermediate factor, which depends on the graph and the ordering, and a good ordering is hard to find. It also answers one query at a time: computing the marginal of every variable by running it $N$ times repeats most of the work.
+\end{notebox}
+
+\section{Belief Propagation on Trees}\label{sec:bp}
+
+On a tree, the repetition can be avoided. We consider a pairwise MRF on a tree $G=(V,E)$,
+\[
+p(x)=\frac1Z\prod_{i\in V}\psi_i(x_i)\prod_{(i,j)\in E}\psi_{ij}(x_i,x_j),
+\]
+with neighbor sets $N(i)=\{j:(i,j)\in E\}$. A directed tree can be written in this form, with $\psi_{ij}(x_i,x_j)=p(x_j\given x_i)$ for each edge and the root's marginal as its node potential. For trees, any elimination ordering that proceeds from the leaves toward a chosen root is optimal: eliminating a leaf $x_j$ attached to $x_i$ produces a factor of the single variable $x_i$. That factor is called a \emph{message} from $j$ to $i$.
+
+\begin{definition}[Messages and Beliefs]\label{def:bp-messages}
+The \emph{message} from node $j$ to a neighbor $i$ is
+\begin{equation}\label{eq:bp-message}
+m_{j\to i}(x_i)=\sum_{x_j}\psi_j(x_j)\,\psi_{ij}(x_i,x_j)\prod_{u\in N(j)\setminus\{i\}}m_{u\to j}(x_j).
+\end{equation}
+If $x_j$ is observed as $\bar x_j$, the sum is replaced by evaluation at $\bar x_j$:
+\[
+m_{j\to i}(x_i)=\psi_j(\bar x_j)\psi_{ij}(x_i,\bar x_j)\prod_{u\in N(j)\setminus\{i\}}m_{u\to j}(\bar x_j).
+\]
+The \emph{belief} at node $i$ is
+\[
+b(x_i)\propto\psi_i(x_i)\prod_{j\in N(i)}m_{j\to i}(x_i).
+\]
+\end{definition}
+
+A message summarizes everything on $j$'s side of the edge $(i,j)$: it combines $j$'s own potential, the edge potential, and the messages $j$ has received from its other neighbors, and then sums $x_j$ out. Observing $x_j$ is the same as multiplying $\psi_j$ by the indicator $\ind[x_j=\bar x_j]$, so evidence can always be absorbed into the node potentials.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  var/.style={draw, circle, minimum size=8mm, inner sep=0pt, font=\small},
+  obs/.style={var, fill=black!15},
+  msg/.style={-{Stealth[length=2mm]}, thick, blue!60!black},
+  lab/.style={font=\scriptsize, text=blue!60!black}
+]
+\node[var] (x1) at (0,0) {$x_1$};
+\node[obs] (x2) at (-1.6,-1.3) {$x_2$};
+\node[var] (x3) at (1.6,-1.3) {$x_3$};
+\node[obs] (x4) at (0.6,-2.8) {$x_4$};
+\node[obs] (x5) at (2.6,-2.8) {$x_5$};
+\draw (x1)--(x2) (x1)--(x3) (x3)--(x4) (x3)--(x5);
+\draw[msg] (x2) to[bend left=25] node[lab, left] {$m_{2\to1}$} (x1);
+\draw[msg] (x1) to[bend left=25] node[lab, above right] {$m_{1\to3}$} (x3);
+\draw[msg] (x4) to[bend left=25] node[lab, left] {$m_{4\to3}$} (x3);
+\draw[msg] (x5) to[bend right=25] node[lab, right] {$m_{5\to3}$} (x3);
+\end{tikzpicture}
+\caption{The tree from the lectures, with $x_2,x_4,x_5$ observed (shaded). With $x_3$ as root, the four messages shown give $p(x_3\given\bar x_2,\bar x_4,\bar x_5)\propto\psi_3(x_3)m_{1\to3}(x_3)m_{4\to3}(x_3)m_{5\to3}(x_3)$.}
+\label{fig:bp-tree}
+\end{figure}
+
+In the example of \cref{fig:bp-tree}, the messages from the observed leaves are $m_{2\to1}(x_1)=\psi_2(\bar x_2)\psi_{12}(x_1,\bar x_2)$, $m_{4\to3}(x_3)=\psi_4(\bar x_4)\psi_{34}(x_3,\bar x_4)$, $m_{5\to3}(x_3)=\psi_5(\bar x_5)\psi_{35}(x_3,\bar x_5)$, followed by $m_{1\to3}(x_3)=\sum_{x_1}\psi_1(x_1)\psi_{13}(x_1,x_3)m_{2\to1}(x_1)$. The normalized belief $b(x_3)$ is exactly the result of variable elimination with $x_3$ as the query. A single pass toward a root gives the correct marginal only at that root. For $p(x_1\given\bar x_2,\bar x_4,\bar x_5)$ we also need $m_{3\to1}(x_1)=\sum_{x_3}\psi_3(x_3)\psi_{13}(x_1,x_3)m_{4\to3}(x_3)m_{5\to3}(x_3)$; the messages $m_{4\to3}$ and $m_{5\to3}$ are reused.
+
+\begin{algorithm}[H]
+\caption{Belief Propagation on a Tree (Sum-Product)}\label{alg:bp}
+\begin{algorithmic}[1]
+\Input{A tree-structured pairwise MRF with potentials $\psi_i,\psi_{ij}$; evidence absorbed into the node potentials.}
+\State Choose an arbitrary root $r$.
+\State \textbf{Collect:} from the leaves toward $r$, each node $j\ne r$ sends $m_{j\to i}$ to its parent $i$ by \eqref{eq:bp-message} once it has received the messages from all its children.
+\State \textbf{Distribute:} from $r$ toward the leaves, each node sends $m_{i\to j}$ to each of its children $j$ by \eqref{eq:bp-message}.
+\For{each unobserved node $i$}
+  \State $b(x_i)\gets\psi_i(x_i)\prod_{j\in N(i)}m_{j\to i}(x_i)$, then normalize so that $\sum_{x_i}b(x_i)=1$.
+\EndFor
+\Output{Beliefs $b(x_i)=p(x_i\given\bar x_E)$ for every unobserved node $i$.}
+\end{algorithmic}
+\end{algorithm}
+
+After the two passes every directed edge carries exactly one message, so the whole computation costs $O(|E|k^2)$, about twice the cost of a single query, instead of $N$ separate runs of variable elimination.
+
+\begin{remark}[Max-Product and MAP]\label{rem:max-product}
+Replacing the sum in \eqref{eq:bp-message} by a maximum,
+\[
+m_{j\to i}(x_i)=\max_{x_j}\ \psi_j(x_j)\psi_{ij}(x_i,x_j)\prod_{u\in N(j)\setminus\{i\}}m_{u\to j}(x_j),
+\]
+gives \emph{max-product} belief propagation. The resulting beliefs are \emph{max-marginals},
+\[
+b(x_i)\propto\max_{x_{-i}}p(x_i,x_{-i}\given\bar x_E),
+\]
+where $x_{-i}$ denotes all variables other than $x_i$, and on a tree $\hat x_i=\argmax_{x_i}b(x_i)$ is a MAP assignment when the maximizer is unique. In practice messages are computed in the log domain (max-sum) to avoid underflow. On an HMM chain, sum-product BP is the forward--backward algorithm and max-product BP is Viterbi.
+\end{remark}
+
+\begin{remark}[Which Decision?]
+Sum-product beliefs support the decision $\hat x_i=\argmax_{x_i}p(x_i\given\bar x_E)$ for each node separately, which minimizes the expected number of wrongly predicted variables (a Hamming loss) in the sense of \cref{sec:decision-theory}. Max-product gives the single most probable joint configuration, which minimizes the probability of getting anything wrong. The two can differ.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+On trees, belief propagation is exact and computes all marginals in two passes, at a cost linear in the number of edges. The message updates are local, so they are easy to implement and to vectorize. However, the exactness depends on the absence of cycles. For general graphs one can group variables into a tree of clusters, but the clusters can be large, which brings back the exponential cost of variable elimination.
+\end{notebox}
+
+\section{Loopy Belief Propagation}\label{sec:loopy-bp}
+
+If the graph has cycles, the collect and distribute passes are no longer well defined, because messages around a cycle depend on themselves. \emph{Loopy belief propagation} ignores this and simply iterates the message updates \eqref{eq:bp-message} from some initialization until they stop changing much. The beliefs are then used as approximations of the marginals. There is no general guarantee that the iteration converges, or that its limit is close to the true marginals, but on many problems the result is a very good approximation.
+
+\begin{algorithm}[H]
+\caption{Loopy Belief Propagation with Damping}\label{alg:loopy-bp}
+\begin{algorithmic}[1]
+\Input{A pairwise MRF on a graph $G=(V,E)$ (cycles allowed) with potentials $\psi_i,\psi_{ij}$; damping parameter $\eta\in(0,1]$; number of iterations $T$.}
+\Init{$m_{j\to i}(x_i)\gets1/k$ for every edge in both directions.}
+\For{$t=1,\dots,T$}
+  \For{every directed edge $j\to i$}
+    \State $m^{\mathrm{new}}_{j\to i}(x_i)\gets\sum_{x_j}\psi_{ij}(x_i,x_j)\,\psi_j(x_j)\prod_{u\in N(j)\setminus\{i\}}m_{u\to j}(x_j)$
+    \State $m^{\mathrm{new}}_{j\to i}(x_i)\gets m^{\mathrm{new}}_{j\to i}(x_i)\big/\sum_{x_i'}m^{\mathrm{new}}_{j\to i}(x_i')$ \Comment{normalization}
+    \State $m_{j\to i}\gets\eta\,m^{\mathrm{new}}_{j\to i}+(1-\eta)\,m_{j\to i}$ \Comment{damping; $\eta=1$ is the plain update}
+  \EndFor
+\EndFor
+\State $b(x_i)\gets\psi_i(x_i)\prod_{j\in N(i)}m_{j\to i}(x_i)$, normalized, for every $i\in V$.
+\Output{Approximate marginals $b(x_i)\approx p(x_i\given\bar x_E)$ and decisions $\hat x_i=\argmax_{x_i}b(x_i)$.}
+\end{algorithmic}
+\end{algorithm}
+
+Normalizing the messages does not change the beliefs, which are normalized at the end anyway, but it keeps the numbers in a reasonable range. Mixing the new message with the old one, which the lectures call momentum, damps the oscillations that are common on graphs with many short cycles. The messages in the inner loop may be updated all at once from the previous iteration, or sequentially, using the newest messages as soon as they are available; the lectures sweep from an arbitrary root to the leaves and back, as on a tree. Replacing the sum by a maximum gives loopy max-product.
+
+\subsection{Example: Image Denoising}
+
+A binary image with $n$ pixels is a vector $x\in\{-1,+1\}^n$. The prior is the Ising model of \cref{sec:ising} on the pixel grid,
+\[
+p(x)\propto\prod_{(i,j)\in E}e^{Jx_ix_j},\qquad J>0,
+\]
+which favors neighboring pixels with equal values. The image is sent through a noisy channel that flips each pixel independently with probability $\epsilon$, and we observe $y\in\{-1,+1\}^n$:
+\[
+p(y_i\given x_i)=(1-\epsilon)^{\frac{1+x_iy_i}2}\epsilon^{\frac{1-x_iy_i}2}\ \propto\ e^{\beta y_ix_i},\qquad\beta=\tfrac12\log\frac{1-\epsilon}{\epsilon}.
+\]
+The posterior is again an Ising model, now with an external field given by the observations:
+\[
+p(x\given y)\propto\exp\Big(J\sum_{(i,j)\in E}x_ix_j+\beta\sum_{i\in V}y_ix_i\Big),\qquad\psi_{ij}(x_i,x_j)=e^{Jx_ix_j},\quad\psi_i(x_i)=e^{\beta y_ix_i}.
+\]
+The two hyperparameters have clear roles: $J$ controls how strongly a pixel agrees with its neighbors, and $\beta$ how strongly it agrees with its noisy observation; a small flip probability $\epsilon$ means a large $\beta$.
+
+For binary variables every function of one pixel is a vector in $\R^2$ with entries for $+1$ and $-1$, and the updates become linear algebra:
+\[
+\psi_i=\begin{pmatrix}e^{\beta y_i}\\ e^{-\beta y_i}\end{pmatrix},\qquad
+\Psi_{ij}=\begin{pmatrix}e^{J}&e^{-J}\\ e^{-J}&e^{J}\end{pmatrix},\qquad
+m_{j\to i}=\Psi_{ij}\Big(\psi_j\odot\bigodot_{u\in N(j)\setminus\{i\}}m_{u\to j}\Big),
+\]
+where $\odot$ is the elementwise product: the product over neighbors is elementwise, and the sum over $x_j$ is a matrix--vector product. Starting from $m_{j\to i}=(1/2,1/2)\T$, ten to twenty iterations of \cref{alg:loopy-bp} suffice, and the decision $\hat x_i=\argmax_{x_i}b(x_i)$ recovers a clean image (the Mona Lisa example of the lectures). Note that nothing is learned from data here: $J$ and $\beta$ are fixed, and the computation is pure inference for a single image.
+
+\begin{remark}[Connection to Mean-Field and Gibbs Updates]
+Loopy BP is one of several schemes that approximate marginals by repeated local updates. Naive mean-field variational inference (\cref{sec:mean-field}) for the same Ising posterior updates $\mu_i=\E_q[x_i]$ by $\mu_i\gets\tanh\big(J\sum_{j\in N(i)}\mu_j+\beta y_i\big)$, and the Gibbs sampler of \cref{alg:gibbs} draws $x_i$ given the current values of its neighbors. Loopy BP keeps a separate message for each direction of each edge, which avoids feeding a node's own influence straight back to it.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+Loopy BP is cheap per iteration, local, and often accurate in practice. However, it may oscillate or fail to converge, it has essentially no guarantees beyond tree-like graphs, and its beliefs tend to be \emph{overconfident}, because evidence that travels around a cycle is counted more than once. Its accuracy deteriorates quickly when the model is wrong, for example when the noise is not independent across pixels. Normalization and damping help with stability; extensions such as generalized belief propagation address some of the other issues.
+\end{notebox}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & Graphs & Output & Cost and accuracy \\
+\midrule
+Variable elimination & any DAG or MRF & one query $p(x_F\given\bar x_E)$ & exact; $O(mk^{N_{\max}})$, depends on the ordering \\
+Belief propagation & trees & all marginals (or max-marginals) & exact; $O(|E|k^2)$ for two passes \\
+Loopy BP & any pairwise MRF & approximate marginals & $O(|E|k^2)$ per iteration; no guarantees \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}{Limitations and what comes next}
+Exact inference is exponential in the size of the largest intermediate factor, and loopy BP replaces exactness by a heuristic without guarantees. A second difficulty is continuous variables. Sums become integrals, which have closed forms only in special cases, such as jointly Gaussian models (\cref{sec:gaussian}). In the TrueSkill model, for instance, each skill has a Gaussian prior, but the probability that one player beats another is a logistic function of the difference of their skills, and the posterior over all skills has no closed form. \Cref{ch:mcmc} therefore gives up exact computation and approximates expectations under the posterior by averages over random samples; \cref{ch:vi} instead approximates the posterior by a simpler distribution found by optimization.
+\end{notebox}

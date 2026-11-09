@@ -1,0 +1,157 @@
+\chapter*{Overview}
+\addcontentsline{toc}{chapter}{Overview}
+\markboth{Overview}{Overview}
+
+These notes merge two courses into one story. STA 314 (Fall 2024) is about \emph{prediction}: given examples $(x_i,y_i)$, build a function that predicts $y$ from $x$ well on new data, and choose among competing methods honestly. STA 414 (Winter 2025) is about \emph{probabilistic modeling}: write down a joint distribution over everything that is observed and unobserved, and compute with it. The two views are not separate subjects. Least squares is maximum likelihood under Gaussian noise, ridge regression is a posterior mode, a Gaussian process is Bayesian kernel regression, and the variational autoencoder trains a neural network with the same evidence lower bound that justifies the EM algorithm. The notes are therefore organized by ideas rather than by the order of the lectures.
+
+\section*{The Roadmap}
+
+\Cref{part:foundations} sets up the common language. \Cref{ch:learning} defines the prediction problem, the risk of a predictor, the Bayes-optimal rule, and the bias--variance trade-off that governs every method that follows. \Cref{ch:probability} introduces likelihood, Bayesian inference, exponential families, and the Gaussian identities used throughout. \Cref{ch:optimization} covers gradient descent and its stochastic version, the computational engine of almost every fitting procedure in the notes.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=6.5mm,
+  box/.style={draw, rounded corners=2pt, align=center, font=\small, text width=44mm, minimum height=8mm, fill=white, execute at begin node={\hyphenpenalty=10000}},
+  arr/.style={-{Stealth[length=2mm]}, thick},
+  xarr/.style={-{Stealth[length=2mm]}, thick, dashed, black!60},
+  lab/.style={font=\scriptsize\itshape, align=left, text=black!70}
+]
+\node[box, text width=120mm] (found) {\textbf{Foundations:} risk and bias--variance (\cref{ch:learning}), likelihood and Bayes (\cref{ch:probability}), gradient descent (\cref{ch:optimization})};
+
+\node[box, below=10mm of found.south west, anchor=north west] (lin) {Linear regression, model selection (\cref{ch:linreg})};
+\node[box, below=of lin] (shr) {Shrinkage, Bayesian linear regression (\cref{ch:shrinkage})};
+\node[box, below=of shr] (nonlin) {Splines, local regression, GAMs (\cref{ch:nonlinear})};
+\node[box, below=of nonlin] (cls) {Logistic regression, LDA (\cref{ch:classification})};
+\node[box, below=of cls] (svm) {Support vector machines (\cref{ch:svm})};
+\node[box, below=of svm] (ker) {Kernels, Gaussian processes (\cref{ch:kernels})};
+\node[box, below=of ker] (trees) {Trees, bagging, boosting (\cref{ch:trees})};
+\node[box, below=of trees] (nn) {Neural networks (\cref{ch:nn})};
+
+\node[box, below=10mm of found.south east, anchor=north east] (pgm) {Graphical models (\cref{ch:pgm})};
+\node[box, below=of pgm] (inf) {Exact inference, message passing (\cref{ch:inference})};
+\node[box, below=of inf] (mcmc) {Monte Carlo, MCMC (\cref{ch:mcmc})};
+\node[box, below=of mcmc] (vi) {Variational inference (\cref{ch:vi})};
+\node[box, below=of vi] (lat) {Mixtures, EM, PCA, VAEs (\cref{ch:latent})};
+\node[box, below=of lat] (att) {Embeddings, attention (\cref{ch:attention})};
+\node[box, below=of att] (diff) {Diffusion models (\cref{ch:diffusion})};
+
+\draw[arr] (found.south -| lin.north) -- (lin.north);
+\draw[arr] (found.south -| pgm.north) -- (pgm.north);
+\draw[arr] (lin) -- (shr);
+\draw[arr] (shr) -- (nonlin);
+\draw[arr] (nonlin) -- (cls);
+\draw[arr] (cls) -- (svm);
+\draw[arr] (svm) -- (ker);
+\draw[arr] (ker) -- (trees);
+\draw[arr] (trees) -- (nn);
+\draw[arr] (pgm) -- (inf);
+\draw[arr] (inf) -- (mcmc);
+\draw[arr] (mcmc) -- (vi);
+\draw[arr] (vi) -- (lat);
+\draw[arr] (lat) -- (att);
+\draw[arr] (att) -- (diff);
+
+\draw[xarr] (cls.east) -- node[lab, fill=white, inner sep=1pt, align=center, pos=0.45] {LDA, naive Bayes:\\model the joint} (pgm.south west);
+\draw[xarr] (nn.east) -- node[lab, fill=white, inner sep=1pt, align=center, pos=0.5] {networks as\\encoders, decoders,\\denoisers} (lat.west);
+\end{tikzpicture}
+\caption{Two tracks through the notes. Solid arrows give the reading order within each track; dashed arrows mark the main bridges between them.}
+\label{fig:roadmap}
+\end{figure}
+
+\noindent\textbf{Prediction track (\cref{part:prediction}).} Linear regression is the reference method: it is simple, interpretable, and fitted in closed form, and its test error can be estimated by cross-validation or information criteria (\cref{ch:linreg}). When there are many predictors, its variance is too high, and shrinkage trades a little bias for a large reduction in variance; the same estimators reappear as posterior modes in Bayesian linear regression (\cref{ch:shrinkage}). Relaxing linearity in $x$ while keeping linearity in the parameters gives splines and local regression (\cref{ch:nonlinear}). Classification replaces squared error by the $0$--$1$ loss: logistic regression models $\Prob(Y=k\given X=x)$ directly, while discriminant analysis models the joint distribution of $(X,Y)$ (\cref{ch:classification}). Support vector machines drop probabilities altogether and maximize a margin (\cref{ch:svm}). The kernel trick turns every method that depends on the data only through inner products into a non-linear one, and its Bayesian version is the Gaussian process (\cref{ch:kernels}). Trees learn a partition of the input space adaptively, and averaging or boosting many trees gives some of the most accurate off-the-shelf predictors (\cref{ch:trees}). Neural networks, finally, learn the features themselves (\cref{ch:nn}).
+
+\smallskip\noindent\textbf{Probabilistic track (\cref{part:probabilistic}).} A joint distribution over many variables is too large to write down, so graphical models describe it by local factors and read conditional independences off a graph (\cref{ch:pgm}). On trees, marginals can be computed exactly by passing messages (\cref{ch:inference}). In general they cannot, and two families of approximations take over: sampling, in particular Markov chain Monte Carlo (\cref{ch:mcmc}), and optimization over a family of simpler distributions, variational inference (\cref{ch:vi}). Latent variable models combine both tracks: mixtures and probabilistic PCA are fitted by EM, and variational autoencoders use neural networks for the encoder and the decoder (\cref{ch:latent}). The last two chapters describe the components of modern generative models: learned embeddings and attention (\cref{ch:attention}), and diffusion models, which can be read as very deep variational autoencoders with a fixed encoder (\cref{ch:diffusion}).
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & Problem it solves & Difficulty it leaves \\
+\midrule
+$k$-nearest neighbors & prediction with no model for $f$ & curse of dimensionality \\
+OLS & interpretable linear fit in closed form & high variance with many predictors \\
+Ridge, lasso & variance reduction, variable selection & tuning $\lambda$; still linear in $x$ \\
+Splines, GAMs & smooth non-linear effects & interactions must be added by hand \\
+Logistic regression, LDA & probabilistic classification & linear boundaries \\
+SVM & large-margin classification & no probabilities; linear unless kernelized \\
+Kernels, GPs & non-linear fits, calibrated uncertainty (GP) & $n\times n$ Gram matrix; features fixed in advance \\
+Trees and ensembles & adaptive, non-linear, interactions & ensembles lose interpretability \\
+Neural networks & learned features & non-convex training, many choices \\
+Graphical models & compact joint distributions & inference is hard in general \\
+Variable elimination, BP & exact inference on trees & exponential cost with large cliques \\
+MCMC & asymptotically exact posterior samples & slow mixing, diagnostics \\
+Variational inference & fast approximate posteriors & bias from the variational family \\
+EM, PPCA, VAEs & learning with latent variables & local optima; blurry VAE samples \\
+Attention, transformers & context-dependent representations & quadratic cost in sequence length \\
+Diffusion models & high-quality generation & slow sampling \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{How to Read These Notes}
+
+Each chapter opens with the problem it addresses and closes with a box describing what is still missing, which motivates the next chapter. Definitions and results are stated precisely, but the emphasis is on what the methods do and why, not on proofs; a short derivation is given only when it shows where an algorithm comes from. Every algorithm is written in the same boxed format, with inputs, numbered steps, and outputs, and the main methods end with a box of pros and cons. Remarks titled \emph{Connection} link a topic to related material elsewhere in the notes; following them is the fastest way to see the two courses as one subject.
+
+Where the lecture slides contain typos or imprecise statements, these notes give the corrected version and, where it matters, point out the difference in a remark.
+
+\section*{Correspondence with the Lectures}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Chapter & STA 314 (Fall 2024) & STA 414 (Winter 2025) \\
+\midrule
+\ref{ch:learning} The learning problem & Lectures 1, 5 ($k$-NN), 6 & Week 1; Week 4 (decision theory) \\
+\ref{ch:probability} Probabilistic models & Tutorial 6 & Weeks 1, 2 (Gaussians), 10 \\
+\ref{ch:optimization} Optimization & Lecture 8 & Week 6 \\
+\ref{ch:linreg} Linear regression, model selection & Lectures 2, 3; Tutorials 1, 2 & -- \\
+\ref{ch:shrinkage} Shrinkage, Bayesian regression & Lecture 4; Tutorial 3 & Week 10 \\
+\ref{ch:nonlinear} Beyond linearity & Lecture 5 & -- \\
+\ref{ch:classification} Classification & Lectures 6, 7, 9; Tutorials 5, 7 & -- \\
+\ref{ch:svm} Support vector machines & Lecture 10; Tutorial 8 & -- \\
+\ref{ch:kernels} Kernels, Gaussian processes & Tutorial 8 & Week 12 (first part) \\
+\ref{ch:trees} Trees and ensembles & Lectures 11, 12 & -- \\
+\ref{ch:nn} Neural networks & -- & Week 6 \\
+\ref{ch:pgm} Graphical models & -- & Week 2; Week 5 (Markov chains); Tutorial 2 \\
+\ref{ch:inference} Exact inference & -- & Weeks 3, 4; Tutorial 3 \\
+\ref{ch:mcmc} Monte Carlo, MCMC & -- & Weeks 3, 5; TrueSkill notes \\
+\ref{ch:vi} Variational inference & -- & Weeks 6, 9 \\
+\ref{ch:latent} Latent variable models & -- & Weeks 9, 10, 13 \\
+\ref{ch:attention} Embeddings, attention & -- & Week 11 (CSC 412 slides) \\
+\ref{ch:diffusion} Diffusion models & -- & Week 12 (second part), Week 13 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Notation}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\cD=\{(x_i,y_i)\}_{i=1}^n$ & training data; $x_i\in\R^p$, responses $y_i$ \\
+$X,\ y$ & design matrix (with a leading column of ones when there is an intercept), response vector \\
+$f,\ \hatf$ & true regression function in $Y=f(X)+\varepsilon$, and its estimate \\
+$\beta,\ \hat\beta$ & coefficients of a linear model and their estimates \\
+$\phi(x),\ k(x,x'),\ K$ & feature map, kernel, Gram matrix \\
+$L(y,\hat y),\ \Err(\hatf)$ & loss function, expected test error \\
+$p_k(x)=\Prob(Y=k\given X=x)$ & posterior class probability; $\pi_k$ class prior or mixture weight \\
+$\theta,\ \eta$ & generic parameters, learning rate \\
+$W^{(\ell)},\ b^{(\ell)}$ & weights and biases of layer $\ell$ of a neural network \\
+$x,\ z$ & observed and latent variables in a probabilistic model \\
+$q_\phi$ & variational distribution or encoder \\
+$\ELBO$ & evidence lower bound \\
+$\KL(q\,\|\,p)$ & Kullback--Leibler divergence \\
+$\psi_C,\ Z$ & clique potential, partition function \\
+$m_{j\to i}$ & message from node $j$ to node $i$ \\
+$p=\tilde p/Z,\ q,\ T$ & target density, proposal, Markov transition kernel \\
+$f\sim\GP(m,k)$ & Gaussian process with mean $m$ and covariance $k$ \\
+$\beta_t,\ \bar\alpha_t$ & noise schedule of a diffusion model (\cref{ch:diffusion}; unrelated to regression coefficients) \\
+$A\indep B\given C$ & $A$ and $B$ are conditionally independent given $C$ \\
+\bottomrule
+\end{tabularx}
+\end{center}

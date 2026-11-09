@@ -1,0 +1,256 @@
+\chapter{Trees and Ensembles}\label{ch:trees}
+
+The methods of \cref{ch:linreg,ch:shrinkage,ch:nonlinear,ch:classification,ch:svm,ch:kernels} all describe the regression function or the decision boundary by a single global formula: a linear combination of the predictors, of basis functions, or of kernel evaluations. Tree-based methods take a different route. They partition the feature space into rectangles and predict a constant in each one, and the partition itself is learned from the data. A single tree is easy to explain but unstable: a small change in the training data can produce a very different tree. The second half of the chapter shows how combining many trees fixes this, at the price of interpretability. \Cref{sec:regression-trees,sec:tree-pruning,sec:classification-trees} build, prune, and adapt single trees; \cref{sec:bootstrap} introduces the bootstrap, a general resampling tool; \cref{sec:bagging,sec:random-forests} use it to average many trees; and \cref{sec:boosting} grows trees sequentially, each one correcting the errors of the current ensemble.
+
+\section{Regression Trees}\label{sec:regression-trees}
+
+A decision tree makes a prediction by asking a sequence of questions about the features. Each internal node tests one feature, $x_j<s$ for a continuous feature or membership in a subset of levels for a qualitative one; the branches partition the range of that feature; and each leaf (terminal node) stores a prediction. Every root-to-leaf path defines a region of the feature space, and the regions of all leaves form a partition.
+
+\begin{definition}[Tree Predictor]\label{def:tree}
+A tree with $J$ leaves partitions the feature space into disjoint rectangles $R_1,\dots,R_J$ and predicts
+\[
+\hatf(x)=\sum_{m=1}^J c_m\,\ind\{x\in R_m\},
+\]
+where, for the training observations falling in $R_m$, $c_m=\bar y_{R_m}$ is their mean response (regression tree) or their most common class (classification tree).
+\end{definition}
+
+The Hitters example of the lectures predicts a baseball player's salary from \emph{Years} and \emph{Hits}. The fitted tree splits first on $\text{Years}<4.5$ and then, for experienced players only, on $\text{Hits}<117.5$: experience matters most, and the number of hits matters only once a player is established. A linear model cannot express such an interaction as directly, and the tree can be read without any statistics.
+
+Ideally we would choose the rectangles to minimize the residual sum of squares $\sum_{m=1}^J\sum_{i:x_i\in R_m}(y_i-\bar y_{R_m})^2$, but enumerating all partitions is infeasible. Trees are therefore grown by a \emph{top-down, greedy} procedure: start with the whole space and repeatedly split one region into two, choosing at each step the split that helps most \emph{now}, without looking ahead. For a region $R$ with $n_R$ observations write $Q(R)$ for its \emph{impurity}; for regression $Q(R)=\frac1{n_R}\sum_{i:x_i\in R}(y_i-\bar y_R)^2$, so that $n_RQ(R)$ is the RSS of the region. The impurities used for classification appear in \cref{sec:classification-trees}. A split of $R$ on feature $j$ at cutpoint $s$ produces
+\[
+R_1(j,s)=\{x\in R:x_j<s\},\qquad R_2(j,s)=\{x\in R:x_j\ge s\},
+\]
+and we choose $(j,s)$ to minimize $n_{R_1}Q(R_1)+n_{R_2}Q(R_2)$. For each feature only the (at most $n_R-1$) midpoints between consecutive observed values need to be tried, so the search is cheap.
+
+\begin{algorithm}[H]
+\caption{Growing a Tree by Recursive Binary Splitting}\label{alg:tree-grow}
+\begin{algorithmic}[1]
+\Input{Training data $\{(x_i,y_i)\}_{i=1}^n$, impurity $Q$, minimum leaf size $n_{\min}$.}
+\Init{One leaf $R=\R^p$ containing all observations; list of leaves $\cL\gets\{R\}$.}
+\While{some leaf in $\cL$ has more than $n_{\min}$ observations and can be split}
+  \State Pick such a leaf $R$.
+  \For{$j=1,\dots,p$ and each midpoint $s$ between consecutive values of $x_{ij}$, $x_i\in R$}
+    \State Form $R_1(j,s)$, $R_2(j,s)$ and compute the cost $n_{R_1}Q(R_1)+n_{R_2}Q(R_2)$.
+  \EndFor
+  \State $(j^*,s^*)\gets$ the pair with the smallest cost.
+  \State Replace $R$ in $\cL$ by $R_1(j^*,s^*)$ and $R_2(j^*,s^*)$. \Comment{one new branch pair}
+\EndWhile
+\Output{The tree $T_0$ with leaves $R_1,\dots,R_J$; $\hatf(x)=\bar y_{R_m}$ (or the majority class) for $x\in R_m$.}
+\end{algorithmic}
+\end{algorithm}
+
+Recursive binary splitting can only produce partitions that are obtained by cutting a box into two boxes along one axis, again and again. Many rectangular partitions, such as a ``pinwheel'' arrangement of five boxes, cannot arise this way; this restriction is what makes the result a tree.
+
+\begin{remark}[Connection to Step Functions and $k$-NN]
+A tree is a step-function regression (\cref{sec:basis}) whose steps are chosen by the data rather than fixed in advance, and in several dimensions at once. It is also a local averaging method like $k$-nearest neighbors (\cref{sec:knn}): the prediction at $x$ is the average response over a neighborhood of $x$. The difference is that the neighborhoods of a tree adapt to the response, becoming small where $f$ changes quickly and large where it is flat, and they ignore features that never appear in a split.
+\end{remark}
+
+\section{Pruning}\label{sec:tree-pruning}
+
+Grown until every leaf holds a single observation, a tree interpolates the training data: its training error is zero and its variance is enormous. A smaller tree has lower variance and is easier to interpret, at the cost of some bias (\cref{sec:bias-variance}). Stopping the growth early is short-sighted, because a split that looks useless may enable a very good split below it. The standard strategy is to grow a large tree $T_0$ and then \emph{prune} it back.
+
+\begin{definition}[Cost Complexity Criterion]\label{def:cost-complexity}
+For a subtree $T\subseteq T_0$ with $|T|$ leaves $R_1,\dots,R_{|T|}$ and a tuning parameter $\alpha\ge0$,
+\[
+C_\alpha(T)=\sum_{m=1}^{|T|}n_{R_m}Q(R_m)+\alpha|T|.
+\]
+$T_\alpha$ denotes the subtree of $T_0$ that minimizes $C_\alpha$.
+\end{definition}
+
+The penalty $\alpha|T|$ plays the role of the penalties in $C_p$ and AIC (\cref{sec:info-criteria}) and in the lasso (\cref{sec:lasso}): $\alpha=0$ returns $T_0$, and larger $\alpha$ favors smaller trees. As $\alpha$ increases, branches are removed in a nested and predictable order, so the whole family $\{T_\alpha\}$ is cheap to compute. This is \emph{weakest-link pruning}: repeatedly collapse the internal node whose removal increases the training cost least per leaf removed. The value of $\alpha$ is chosen by cross-validation (\cref{sec:cv}).
+
+\begin{algorithm}[H]
+\caption{Building a Regression Tree with Cost Complexity Pruning}\label{alg:tree-prune}
+\begin{algorithmic}[1]
+\Input{Training data, number of folds $K$, grid of values of $\alpha$.}
+\State Grow a large tree $T_0$ on all training data with \cref{alg:tree-grow}.
+\State Apply weakest-link pruning to $T_0$ to obtain the best subtree $T_\alpha$ for every $\alpha$ in the grid.
+\State Split the training data into $K$ folds.
+\For{$k=1,\dots,K$}
+  \State Repeat lines~1--2 on all folds except fold $k$.
+  \State Compute the mean squared prediction error $E_k(\alpha)$ on fold $k$ for every $\alpha$.
+\EndFor
+\State $\hat\alpha\gets\argmin_\alpha\frac1K\sum_{k=1}^KE_k(\alpha)$.
+\Output{The subtree $T_{\hat\alpha}$ from line~2.}
+\end{algorithmic}
+\end{algorithm}
+
+Cross-validation is applied to the one-dimensional parameter $\alpha$, not to every possible subtree, of which there are far too many. In the Hitters example the cross-validated error is minimized by a tree with only three leaves, the same three regions described above.
+
+\section{Classification Trees}\label{sec:classification-trees}
+
+A classification tree predicts the most common class among the training observations in a leaf, and it is grown by the same recursive splitting. Only the impurity changes. Let $\hat p_{mk}=\frac1{n_{R_m}}\sum_{i:x_i\in R_m}\ind\{y_i=k\}$ be the proportion of class $k$ in region $R_m$.
+
+\begin{definition}[Node Impurities]\label{def:impurity}
+For a region $R_m$ with class proportions $\hat p_{m1},\dots,\hat p_{mK}$:
+\begin{enumerate}[(i)]
+  \item the \emph{misclassification rate} $E_m=1-\max_k\hat p_{mk}$;
+  \item the \emph{Gini index} $G_m=\sum_{k=1}^K\hat p_{mk}(1-\hat p_{mk})$;
+  \item the \emph{deviance} or \emph{entropy} $D_m=-\sum_{k=1}^K\hat p_{mk}\log\hat p_{mk}$.
+\end{enumerate}
+All three vanish when a node is pure (one $\hat p_{mk}$ equals $1$) and are largest when the classes are equally mixed.
+\end{definition}
+
+Entropy measures the uncertainty of a random variable: a fair coin has entropy $1$ bit, a coin with $\Prob(\text{heads})=8/9$ about $0.5$ bit, and a deterministic coin $0$. A split is good if the children are, on average, more certain than the parent. The lectures illustrate this with seven fruits, five oranges and two lemons, and two candidate splits. Split A sends two oranges to the left and $(3,2)$ to the right; split B sends $(3,1)$ to the left and $(2,1)$ to the right. Both misclassify two fruits. Weighting each child by its share of the observations gives:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Impurity & Parent $(5,2)$ & Split A: $(2,0)\,|\,(3,2)$ & Split B: $(3,1)\,|\,(2,1)$ \\
+\midrule
+Misclassification rate & $0.286$ & $0.286$ & $0.286$ \\
+Gini index & $0.408$ & $0.343$ & $0.405$ \\
+Entropy (bits) & $0.863$ & $0.694$ & $0.857$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The misclassification rate cannot tell the splits apart, whereas the Gini index and the entropy both prefer split A, which creates a pure node. The decrease in entropy, here $0.863-0.694\approx0.17$ bits for split A against $0.006$ for split B, is called the \emph{information gain}.
+
+\begin{remark}[Weighting the Children]
+The slides compare the splits by the \emph{unweighted sum} of the two children's entropies ($1.73$ for B, $0.97$ for A). The criterion used in \cref{alg:tree-grow} weights each child by its number of observations, $n_{R_1}Q(R_1)+n_{R_2}Q(R_2)$; otherwise a split that isolates a single observation in a pure leaf would look artificially good. In this example both versions prefer split A.
+\end{remark}
+
+The Gini index and the deviance are numerically similar and more sensitive to node purity than the misclassification rate, so either is used to grow the tree. Any of the three can be used for pruning; if prediction accuracy is the final goal, the misclassification rate is the natural choice. In the Heart data (303 patients, 13 features, predicting heart disease), cross-validation selects a pruned tree with six leaves.
+
+\section{Trees Versus Linear Models}\label{sec:trees-vs-linear}
+
+A linear model assumes $f(x)=\beta_0+\sum_j\beta_jx_j$, while a tree assumes $f(x)=\sum_mc_m\ind\{x\in R_m\}$. If the true relationship is close to linear, the tree wastes many splits approximating a plane by a staircase; if it is highly nonlinear with interactions, the tree can win. Which assumption fits better is an empirical question, answered by estimating the test error with cross-validation or a validation set.
+
+\begin{notebox}{Pros and Cons}
+Trees are easy to explain, arguably closer to human decision-making than regression, can be displayed graphically, and handle qualitative predictors without dummy variables. They are invariant to monotone transformations of the features. However, a single tree is usually less accurate than the methods of the previous chapters, and it is not robust: a small change in the data can change the first split and hence the entire tree. The rest of the chapter exploits exactly this high variance: averaging many different trees reduces it.
+\end{notebox}
+
+\section{The Bootstrap}\label{sec:bootstrap}
+
+Before combining trees we need a way to create many training sets from one. The bootstrap does this, and it is useful far beyond trees: it quantifies the uncertainty of almost any statistical procedure.
+
+Consider the lectures' portfolio example. We invest a fraction $\alpha$ in an asset with return $X$ and $1-\alpha$ in an asset with return $Y$. The variance $\Var(\alpha X+(1-\alpha)Y)$ is minimized by
+\[
+\alpha=\frac{\sigma_Y^2-\sigma_{XY}}{\sigma_X^2+\sigma_Y^2-2\sigma_{XY}},
+\]
+and from $100$ past observations we estimate $\hat\alpha$ by plugging in sample variances and the sample covariance. How variable is $\hat\alpha$? If we could draw new data sets from the population, we would compute $\hat\alpha$ on each of, say, $1000$ simulated data sets and take the sample variance. This \emph{oracle} approach is impossible in practice, because the population distribution is unknown. The bootstrap replaces the unknown population by the data themselves.
+
+\begin{algorithm}[H]
+\caption{Bootstrap Estimate of Uncertainty}\label{alg:bootstrap}
+\begin{algorithmic}[1]
+\Input{Data $Z=(z_1,\dots,z_n)$, an estimator $\hat\theta=s(Z)$, number of bootstrap replicates $B$.}
+\For{$b=1,\dots,B$}
+  \State Draw $n$ indices uniformly from $\{1,\dots,n\}$ \emph{with replacement}; let $Z^{*b}$ be the corresponding observations.
+  \State $\hat\theta^{*b}\gets s(Z^{*b})$
+\EndFor
+\State $\bar\theta^*\gets\frac1B\sum_{b=1}^B\hat\theta^{*b}$
+\Output{$\widehat{\mathrm{SE}}(\hat\theta)=\Big(\frac1{B-1}\sum_{b=1}^B(\hat\theta^{*b}-\bar\theta^*)^2\Big)^{1/2}$; more generally, the empirical distribution of $\hat\theta^{*1},\dots,\hat\theta^{*B}$ (its quantiles, histogram) as an estimate of the sampling distribution of $\hat\theta$.}
+\end{algorithmic}
+\end{algorithm}
+
+A bootstrap sample has the same size as the original data, so some observations appear several times and others not at all. In the portfolio example the histogram of $1000$ bootstrap estimates is very close to the histogram from $1000$ truly new data sets. The same recipe applies to OLS (\cref{sec:ols}): resample the pairs $(x_i,y_i)$, recompute $\hat\beta^{*b}=(X^{*b\top}X^{*b})^{-1}X^{*b\top}y^{*b}$, and read off the standard error, quantiles, or whole distribution of each $\hat\beta_j$. The textbook formula $\Cov(\hat\beta)=\sigma^2(X\T X)^{-1}$ relies on the linear model being correct; the bootstrap does not.
+
+\begin{remark}[Connection to Monte Carlo]
+The oracle approach is plain Monte Carlo estimation (\cref{sec:mc-estimation}) under the true distribution $F$ of the data. The bootstrap is Monte Carlo under the \emph{empirical distribution} $\hat F_n$, which puts mass $1/n$ on each observation; sampling $n$ points from $\hat F_n$ is exactly sampling with replacement. Two approximations are involved: $\hat F_n\approx F$, a statistical error that does not shrink as $B$ grows, and the finite number of replicates, a Monte Carlo error of order $B^{-1/2}$ that can be made as small as computing time allows.
+\end{remark}
+
+A fact used below: a given observation is left out of a bootstrap sample with probability $(1-1/n)^n\to e^{-1}\approx0.37$, so each bootstrap sample contains about two thirds of the distinct observations.
+
+\section{Bagging}\label{sec:bagging}
+
+Averaging reduces variance without adding bias. If $\hat\beta^{(1)},\dots,\hat\beta^{(N)}$ are \emph{independent} estimates of $\beta$, each with $|\E[\hat\beta^{(i)}]-\beta|\le b$ and variance $\sigma^2$, then their average $\bar\beta$ still has bias at most $b$ but variance $\sigma^2/N$. With $B$ independent training sets we could grow $B$ trees and average them. We have only one training set, so \emph{bootstrap aggregation}, or \emph{bagging}, uses bootstrap samples instead.
+
+\begin{algorithm}[H]
+\caption{Bagging Trees}\label{alg:bagging}
+\begin{algorithmic}[1]
+\Input{Training data $\{(x_i,y_i)\}_{i=1}^n$, number of trees $B$.}
+\For{$b=1,\dots,B$}
+  \State Draw a bootstrap sample $\cD^{*b}$ of size $n$ (\cref{alg:bootstrap}); record the out-of-bag set $O_b=\{i:(x_i,y_i)\notin\cD^{*b}\}$.
+  \State Grow a deep tree $\hatf^{*b}$ on $\cD^{*b}$ with \cref{alg:tree-grow}, without pruning.
+\EndFor
+\For{$i=1,\dots,n$} \Comment{out-of-bag error}
+  \State $\hat y_i^{\mathrm{oob}}\gets$ average (regression) or majority vote (classification) of $\hatf^{*b}(x_i)$ over $\{b:i\in O_b\}$.
+\EndFor
+\Output{$\hatf_{\mathrm{bag}}(x)=\frac1B\sum_{b=1}^B\hatf^{*b}(x)$, or the majority vote of the $B$ trees for classification; OOB error: the MSE or misclassification rate of $\hat y^{\mathrm{oob}}$ against $y$.}
+\end{algorithmic}
+\end{algorithm}
+
+The trees are grown deep and not pruned: each has low bias and high variance, and averaging attacks the variance. Each observation is out of bag for about a third of the trees, so its OOB prediction comes from trees that never saw it. The OOB error is therefore a valid estimate of the test error, obtained for free without cross-validation; with large $B$ it is essentially leave-one-out cross-validation for the bagged model.
+
+Bagging gives up the interpretability of a single tree. A summary is the \emph{variable importance} of each predictor: the total decrease in RSS (regression) or in the Gini index (classification) due to splits on that predictor, averaged over the $B$ trees and often expressed relative to the largest value.
+
+\begin{remark}[Connection to the Bias--Variance Trade-off]
+By \cref{thm:bias-variance}, the expected test error is the irreducible noise plus squared bias plus variance. A single tree chooses its size to balance the last two. Bagging changes the trade-off: because averaging removes much of the variance, each tree can be grown to have very low bias. Bagging helps unstable, high-variance procedures such as deep trees and does little for stable ones such as OLS.
+\end{remark}
+
+\section{Random Forests}\label{sec:random-forests}
+
+The bootstrap samples overlap, so bagged trees are not independent. If $B$ identically distributed predictions each have variance $\sigma^2$ and pairwise correlation $\rho$, their average has variance
+\[
+\rho\,\sigma^2+\frac{1-\rho}{B}\,\sigma^2 .
+\]
+The second term vanishes as $B\to\infty$, but the first does not: correlation sets a floor on what averaging can achieve. Bagged trees are often strongly correlated. If one predictor is very strong, almost every tree uses it for the first split, and the trees look alike. Random forests decorrelate the trees by restricting the features each split may use.
+
+\begin{algorithm}[H]
+\caption{Random Forest}\label{alg:random-forest}
+\begin{algorithmic}[1]
+\Input{Training data, number of trees $B$, number of split candidates $m\le p$ (commonly $m\approx\sqrt p$).}
+\For{$b=1,\dots,B$}
+  \State Draw a bootstrap sample $\cD^{*b}$.
+  \State Grow a deep tree on $\cD^{*b}$ with \cref{alg:tree-grow}, except that \emph{at each split} a fresh random subset of $m$ of the $p$ predictors is drawn and only these are considered.
+\EndFor
+\Output{The average (regression) or majority vote (classification) of the $B$ trees, with OOB error as in \cref{alg:bagging}.}
+\end{algorithmic}
+\end{algorithm}
+
+With $m=p$ a random forest is bagging. With $m<p$, many splits do not even consider the strong predictor, other predictors get a chance, and the trees become less similar; this lowers $\rho$ at the price of slightly more bias per tree. In the gene expression example of the lectures (349 patients, 15 classes, the 500 genes of highest variance), random forests with $m<p$ improve slightly on bagging, and both are far better than a single tree, whose error rate is $45.7\%$. Neither bagging nor random forests overfit as $B$ grows: $B$ only needs to be large enough for the error to settle.
+
+\section{Boosting}\label{sec:boosting}
+
+Boosting also combines many trees, but it builds them \emph{sequentially}, without bootstrap sampling: each tree is fit to a modified version of the data that reflects what the current ensemble gets wrong. Instead of fitting one large tree, which could overfit, boosting learns slowly by adding many small trees, each shrunk toward zero.
+
+\begin{algorithm}[H]
+\caption{Boosting for Regression Trees}\label{alg:boosting}
+\begin{algorithmic}[1]
+\Input{Training data $\{(x_i,y_i)\}_{i=1}^n$, number of trees $B$, shrinkage $\lambda>0$, number of splits per tree $d$.}
+\Init{$\hatf(x)\gets0$ and residuals $r_i\gets y_i$ for all $i$.}
+\For{$b=1,\dots,B$}
+  \State Fit a tree $\hatf^b$ with $d$ splits ($d+1$ leaves) to the data $\{(x_i,r_i)\}_{i=1}^n$.
+  \State $\hatf(x)\gets\hatf(x)+\lambda\hatf^b(x)$ \Comment{add a shrunken copy}
+  \State $r_i\gets r_i-\lambda\hatf^b(x_i)$ for all $i$. \Comment{update the residuals}
+\EndFor
+\Output{The boosted model $\hatf(x)=\sum_{b=1}^B\lambda\hatf^b(x)$.}
+\end{algorithmic}
+\end{algorithm}
+
+Each tree is small and fit to the residuals, so it improves $\hatf$ a little in the regions where the current fit is poor. The method has three tuning parameters.
+\begin{enumerate}[(i)]
+  \item The number of trees $B$. Unlike bagging and random forests, boosting can overfit if $B$ is too large, although slowly; $B$ is chosen by cross-validation.
+  \item The shrinkage $\lambda$, a small positive number such as $0.01$ or $0.001$. It controls the rate of learning; a smaller $\lambda$ requires a larger $B$.
+  \item The number of splits $d$, which controls the complexity of each tree and the order of interactions the ensemble can represent. Often $d=1$ works well: each tree is a \emph{stump} with a single split, and the boosted model is a sum of functions of one variable each, that is, an additive model as in \cref{sec:gam}.
+\end{enumerate}
+
+\begin{remark}[Connection to Gradient Descent]
+For the squared loss $\frac12\sum_i(y_i-F_i)^2$, viewed as a function of the vector of fitted values $F_i=\hatf(x_i)$, the negative gradient with respect to $F_i$ is exactly the residual $r_i=y_i-F_i$. Lines~2--3 of \cref{alg:boosting} therefore fit a tree to the negative gradient and take a step of size $\lambda$ in that direction: boosting is gradient descent (\cref{alg:gd}) in the space of functions, with the tree serving as a regularized, generalizable approximation of the gradient and $\lambda$ as the learning rate. Replacing the squared loss by another differentiable loss, such as the logistic loss, gives \emph{gradient boosting}, the idea behind libraries such as XGBoost.
+\end{remark}
+
+In the gene expression data, boosting with stumps ($\lambda=0.01$) slightly outperforms depth-two trees and random forests, although the differences are within their standard errors.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & How the trees are built & Main effect & Tuning \\
+\midrule
+Single tree & one tree, grown and pruned & interpretable; high variance & $\alpha$ by CV \\
+Bagging & deep trees on bootstrap samples, in parallel & reduces variance & $B$ (large enough) \\
+Random forest & as bagging, $m$ random candidates per split & reduces variance further by decorrelating & $B$, $m$ \\
+Boosting & small trees fit to residuals, in sequence & reduces bias step by step & $B$ by CV, $\lambda$, $d$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}{Pros and Cons}
+Random forests and boosting are among the most accurate off-the-shelf methods for tabular data. They need little preprocessing, handle mixed feature types and interactions automatically, and come with built-in error estimates (OOB) and importance measures. However, a model made of hundreds of trees is hard to interpret, and boosting must be tuned with care to avoid overfitting.
+\end{notebox}
+
+\begin{notebox}{Limitations and what comes next}
+Every split of a tree is a threshold on one raw feature. This suits tabular data with meaningful columns but not images, audio, or text, where a single pixel or character means little and useful features are complex combinations of many inputs. Kernel methods (\cref{ch:kernels}) handle this by fixing a rich feature map in advance. \Cref{ch:nn} takes the next step: a neural network \emph{learns} its features, and it is trained by the same principle that boosting uses, gradient descent on a loss, now in the space of network weights.
+\end{notebox}

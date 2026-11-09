@@ -1,0 +1,7 @@
+method,label,kendall_tau_vs_hmc,teams_with_other_rank,max_abs_mean_diff,sd_ratio_median,sd_ratio_min,sd_ratio_max,diff_sd_ratio_median,diff_sd_ratio_min,diff_sd_ratio_max,average_skill_mean,average_skill_sd,pairwise_mean_abs_err,pairwise_max_abs_err,P_Arsenal_better,P_Arsenal_better_mcse,seconds,grad_evals_per_chain,step_size,accept_rate,max_rhat,min_ess,median_ess,min_ess_per_sec,min_ess_per_1000_grads,ess_average_skill,rhat_average_skill,ess_Arsenal_minus_Liverpool,elbo,elbo_se,kl_to_posterior
+hmc,HMC,1.0,0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,0.0006,0.173,0.0,0.0,0.0017,0.0002,60.89,315001.0,0.13794,0.66,1.0003,35953.0,46975.0,590.5,28.53,56136.0,1.0001,44156.0,,,
+mala,MALA,1.0,0,0.0186,1.024,1.001,1.035,0.999,0.984,1.013,-0.0123,0.1816,0.0015,0.0145,0.0016,0.0001,10.56,42001.0,0.01096,0.567,1.0039,611.0,781.0,57.8,3.63,417.0,1.0051,32001.0,,,
+mala_omitted,"MALA, 1/(4η) omitted",1.0,0,0.0171,0.722,0.696,0.739,0.737,0.694,0.778,-0.0065,0.1203,0.0262,0.0878,0.0001,0.0,10.67,42001.0,0.01,0.112,1.016,306.0,385.0,28.7,1.82,188.0,1.0223,4452.0,,,
+mfvi,Mean-field VI,1.0,0,0.0033,0.709,0.614,0.961,1.007,0.982,1.036,-0.0,0.0413,0.0017,0.0105,0.0024,,19.85,,,,,,,,,,,,-1508.027,0.013,1.31
+fcvi,Full-cov. VI,1.0,0,0.0027,1.003,0.993,1.012,0.999,0.985,1.015,0.0003,0.1745,0.0012,0.0074,0.0019,,20.96,,,,,,,,,,,,-1506.725,0.013,0.007
+svi_short,"Mean-field VI, 200 SGD steps",0.9583,16,0.3119,1.184,1.015,1.44,1.647,1.393,1.736,0.0003,0.0645,0.0652,0.2549,0.036,,0.26,,,,,,,,,,,,-1519.382,0.034,12.664

@@ -1,0 +1,8 @@
+model,train,test_exact,test_elbo,test_iwae,test_exact_seed_min,test_exact_seed_max
+true density,0.7565,0.7864,,,,
+single Gaussian,-1.4342,-1.4508,,,,
+GMM (K = 20),0.8069,0.6135,,,,
+"VAE, fixed sd 0.1",-0.3672,-0.3831,-0.6750,-0.3965,-0.3871,-0.3783
+"VAE, learned sd",0.6687,0.6057,0.0602,0.5795,0.5974,0.6136
+"VAE, learned sd(z)",-0.6795,-0.7605,-0.7807,-0.7605,-0.7644,-0.7579
+"VAE, 1-D latent",0.6275,0.5803,-6.2871,-5.0431,0.5542,0.6043

@@ -1,0 +1,220 @@
+{
+  "param_draws": 200,
+  "tol": 1e-09,
+  "queries": [
+    {
+      "source": "H",
+      "evidence": [
+        "G",
+        "A"
+      ],
+      "d_separated_bayes_ball": [],
+      "d_separated_bruteforce": [],
+      "d_connected": {
+        "F": {
+          "bayes_ball_hops": 1,
+          "shortest_active_trail": "H <- F"
+        },
+        "D": {
+          "bayes_ball_hops": 2,
+          "shortest_active_trail": "H <- F <- D"
+        },
+        "E": {
+          "bayes_ball_hops": 3,
+          "shortest_active_trail": "H <- F <- D <- E"
+        },
+        "B": {
+          "bayes_ball_hops": 4,
+          "shortest_active_trail": "H <- F <- D <- E <- B"
+        },
+        "C": {
+          "bayes_ball_hops": 5,
+          "shortest_active_trail": "H <- F <- D <- E -> G <- C"
+        },
+        "L": {
+          "bayes_ball_hops": 6,
+          "shortest_active_trail": "H <- F <- D <- E -> G <- C <- L"
+        }
+      },
+      "numeric_min_deviation_over_draws": {
+        "L": 5.710149020288213e-10,
+        "B": 7.47648467580575e-08,
+        "C": 3.29540345567203e-08,
+        "E": 2.4835646417198376e-07,
+        "D": 1.5732757475803508e-05,
+        "F": 0.0029886536061897173
+      },
+      "numeric_median_deviation_over_draws": {
+        "L": 0.00026978155247754654,
+        "B": 0.0013336480405918977,
+        "C": 0.0010785598297871173,
+        "E": 0.005528764980704343,
+        "D": 0.023782849205804188,
+        "F": 0.09195848086053199
+      },
+      "numeric_max_deviation_over_draws": {
+        "L": 0.01585239237181446,
+        "B": 0.06910646073642587,
+        "C": 0.036171736943155564,
+        "E": 0.08774580684788813,
+        "D": 0.13428421362985155,
+        "F": 0.23624991521225935
+      },
+      "numeric_says_independent": []
+    },
+    {
+      "source": "H",
+      "evidence": [
+        "G",
+        "F"
+      ],
+      "d_separated_bayes_ball": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "L"
+      ],
+      "d_separated_bruteforce": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "L"
+      ],
+      "d_connected": {},
+      "numeric_min_deviation_over_draws": {
+        "A": 2.0816681711721685e-17,
+        "L": 2.7755575615628914e-17,
+        "B": 1.3877787807814457e-17,
+        "C": 2.7755575615628914e-17,
+        "E": 2.7755575615628914e-17,
+        "D": 2.7755575615628914e-17
+      },
+      "numeric_median_deviation_over_draws": {
+        "A": 1.1102230246251565e-16,
+        "L": 1.1102230246251565e-16,
+        "B": 1.1102230246251565e-16,
+        "C": 1.1102230246251565e-16,
+        "E": 1.1102230246251565e-16,
+        "D": 1.1102230246251565e-16
+      },
+      "numeric_max_deviation_over_draws": {
+        "A": 2.220446049250313e-16,
+        "L": 2.220446049250313e-16,
+        "B": 2.220446049250313e-16,
+        "C": 2.220446049250313e-16,
+        "E": 2.220446049250313e-16,
+        "D": 2.220446049250313e-16
+      },
+      "numeric_says_independent": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "L"
+      ]
+    },
+    {
+      "source": "A",
+      "evidence": [
+        "C"
+      ],
+      "d_separated_bayes_ball": [],
+      "d_separated_bruteforce": [],
+      "d_connected": {
+        "B": {
+          "bayes_ball_hops": 1,
+          "shortest_active_trail": "A -> B"
+        },
+        "E": {
+          "bayes_ball_hops": 2,
+          "shortest_active_trail": "A -> B -> E"
+        },
+        "L": {
+          "bayes_ball_hops": 2,
+          "shortest_active_trail": "A -> C <- L"
+        },
+        "D": {
+          "bayes_ball_hops": 3,
+          "shortest_active_trail": "A -> B -> E -> D"
+        },
+        "G": {
+          "bayes_ball_hops": 3,
+          "shortest_active_trail": "A -> B -> E -> G"
+        },
+        "F": {
+          "bayes_ball_hops": 4,
+          "shortest_active_trail": "A -> B -> E -> D -> F"
+        },
+        "H": {
+          "bayes_ball_hops": 4,
+          "shortest_active_trail": "A -> B -> E -> G -> H"
+        }
+      },
+      "numeric_min_deviation_over_draws": {
+        "L": 5.553347952491627e-06,
+        "B": 4.98731541288544e-05,
+        "E": 1.6071931051353516e-05,
+        "G": 7.68902637199309e-06,
+        "D": 6.035718691510539e-08,
+        "F": 7.565761739325438e-09,
+        "H": 1.8461588138229956e-06
+      },
+      "numeric_median_deviation_over_draws": {
+        "L": 0.03707737894614967,
+        "B": 0.05286394623956067,
+        "E": 0.010289227794507694,
+        "G": 0.0033198751607651233,
+        "D": 0.002587688274293856,
+        "F": 0.0006196398594954244,
+        "H": 0.0006810561295018114
+      },
+      "numeric_max_deviation_over_draws": {
+        "L": 0.1938214791304067,
+        "B": 0.231872780120383,
+        "E": 0.13031291162087658,
+        "G": 0.0860299366458484,
+        "D": 0.08035555590156968,
+        "F": 0.03590415715822154,
+        "H": 0.047815122559924705
+      },
+      "numeric_says_independent": []
+    }
+  ],
+  "min_deviation_d_connected": 5.710149020288213e-10,
+  "max_deviation_d_separated": 2.220446049250313e-16,
+  "factorization_A_G_given_C": {
+    "p(G=1|A,C)": {
+      "A=0,C=0": {
+        "p(G=1|A,C) formula": 0.3607823531686825,
+        "p(G=1|A,C) joint": 0.36078235316868257
+      },
+      "A=0,C=1": {
+        "p(G=1|A,C) formula": 0.39634262985254365,
+        "p(G=1|A,C) joint": 0.3963426298525435
+      },
+      "A=1,C=0": {
+        "p(G=1|A,C) formula": 0.36856327899382657,
+        "p(G=1|A,C) joint": 0.3685632789938266
+      },
+      "A=1,C=1": {
+        "p(G=1|A,C) formula": 0.4042259818786714,
+        "p(G=1|A,C) joint": 0.40422598187867137
+      }
+    },
+    "p(A=1|C)": {
+      "C=0": 0.7980941207596141,
+      "C=1": 0.5719461145012191
+    },
+    "p(A=1|C,G)": {
+      "C=0,G=0": 0.7961133905076551,
+      "C=0,G=1": 0.8015105894257539,
+      "C=1,G=0": 0.5687248232836849,
+      "C=1,G=1": 0.5767609447871958
+    }
+  }
+}

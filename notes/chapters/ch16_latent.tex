@@ -1,0 +1,367 @@
+\chapter{Latent Variable Models: Mixtures, EM, PCA and VAEs}\label{ch:latent}
+
+Unsupervised learning looks for structure in unlabeled data $x_1,\dots,x_n\in\R^p$: groups of similar points, a low-dimensional description, or a model that can generate new data. Latent variable models address all three in one framework. Each data point $x_i$ is explained by an unobserved $z_i$ (a cluster label, a low-dimensional code), the model specifies $p_\theta(x,z)=p_\theta(z)\,p_\theta(x\given z)$, and the parameters are fitted by maximizing the marginal likelihood $\prod_ip_\theta(x_i)=\prod_i\int p_\theta(x_i,z_i)\dd z_i$. The integral is the same obstacle as in \cref{ch:vi}, and the evidence lower bound is again the tool. \Cref{sec:gmm} introduces Gaussian mixtures, \cref{sec:em} derives the EM algorithm as coordinate ascent on the ELBO, and \cref{sec:kmeans} recovers $K$-means as a limiting case. \Cref{sec:pca,sec:ppca} turn to continuous latent variables: principal component analysis and its probabilistic version. \Cref{sec:autoencoder,sec:vae} replace the linear maps by neural networks, which leads to autoencoders and variational autoencoders.
+
+\section{Gaussian Mixture Models}\label{sec:gmm}
+
+A single Gaussian cannot describe data with several clusters or a skewed shape. Combining several Gaussians gives a much richer family. (The model goes back to Karl Pearson, who in 1894 asked whether a skewed distribution of crab measurements from the Bay of Naples was a mixture of two sub-species.)
+
+\begin{definition}[Gaussian Mixture Model]\label{def:gmm}
+A \emph{Gaussian mixture model} (GMM) with $K$ components has density
+\[
+p(x)=\sum_{k=1}^K\pi_k\,\cN(x\given\mu_k,\Sigma_k),\qquad \pi_k\ge0,\quad\sum_{k=1}^K\pi_k=1,
+\]
+with \emph{mixing coefficients} $\pi_k$, component means $\mu_k\in\R^p$, and covariances $\Sigma_k$. Equivalently, it is the latent variable model
+\[
+z\sim\mathrm{Categorical}(\pi_1,\dots,\pi_K),\qquad x\given z=k\sim\cN(\mu_k,\Sigma_k),
+\]
+whose marginal is $p(x)=\sum_kp(z=k)\,p(x\given z=k)$.
+\end{definition}
+
+The latent formulation explains how the data are generated: first pick a component, then draw from it. Inference about $z$ is a single application of Bayes' rule. The \emph{responsibility} of component $k$ for a point $x$ is the posterior
+\begin{equation}\label{eq:responsibility}
+\gamma_k(x)=p(z=k\given x)=\frac{\pi_k\,\cN(x\given\mu_k,\Sigma_k)}{\sum_{j=1}^K\pi_j\,\cN(x\given\mu_j,\Sigma_j)} .
+\end{equation}
+The prior probability $\pi_k$ is updated to $\gamma_k(x)$ after seeing $x$; a soft clustering assigns each point to all components with these weights.
+
+\begin{remark}[Connection to Discriminant Analysis]\label{rem:gmm-qda}
+If the labels $z_i$ were observed, the GMM would be exactly the generative classification model of quadratic discriminant analysis (\cref{sec:qda}), or of LDA (\cref{sec:lda}) if all $\Sigma_k$ are equal. Its maximum likelihood estimates would be the class proportions, class means, and class covariances, and \eqref{eq:responsibility} would be the posterior class probability used by the Bayes classifier. A GMM is discriminant analysis with missing labels.
+\end{remark}
+
+For data $x_1,\dots,x_n$ and parameters $\theta=(\pi,\mu,\Sigma)$, the log-likelihood is
+\begin{equation}\label{eq:gmm-loglik}
+\log p(x_1,\dots,x_n\given\theta)=\sum_{i=1}^n\log\Big(\sum_{k=1}^K\pi_k\,\cN(x_i\given\mu_k,\Sigma_k)\Big).
+\end{equation}
+The logarithm of a sum does not separate, and there is no closed-form maximizer. Setting the derivatives to zero nevertheless gives informative equations. With $\gamma_{ik}=\gamma_k(x_i)$ and $N_k=\sum_i\gamma_{ik}$, a stationary point satisfies
+\begin{equation}\label{eq:gmm-stationary}
+\mu_k=\frac1{N_k}\sum_{i=1}^n\gamma_{ik}\,x_i,\qquad
+\Sigma_k=\frac1{N_k}\sum_{i=1}^n\gamma_{ik}\,(x_i-\mu_k)(x_i-\mu_k)\T,\qquad
+\pi_k=\frac{N_k}{n}.
+\end{equation}
+These are the usual Gaussian estimates with each point weighted by its responsibility; $N_k$ is the effective number of points in component $k$. They are not a solution, because the responsibilities depend on the parameters. But they suggest an iteration: fix the responsibilities, update the parameters, recompute the responsibilities, and repeat.
+
+\begin{algorithm}[H]
+\caption{EM for Gaussian Mixtures}\label{alg:em-gmm}
+\begin{algorithmic}[1]
+\Input{Data $x_1,\dots,x_n\in\R^p$; number of components $K$; tolerance $\epsilon$.}
+\Init{$\pi_k=1/K$; means $\mu_k$ at $K$ randomly chosen data points (or the output of \cref{alg:kmeans}); $\Sigma_k$ the sample covariance.}
+\Repeat
+  \State \textbf{E-step:} $\gamma_{ik}\gets\dfrac{\pi_k\,\cN(x_i\given\mu_k,\Sigma_k)}{\sum_{j=1}^K\pi_j\,\cN(x_i\given\mu_j,\Sigma_j)}$ for all $i,k$
+  \State \textbf{M-step:} $N_k\gets\sum_i\gamma_{ik}$, \quad $\mu_k\gets\frac1{N_k}\sum_i\gamma_{ik}x_i$
+  \State \hphantom{\textbf{M-step:}} $\Sigma_k\gets\frac1{N_k}\sum_i\gamma_{ik}(x_i-\mu_k)(x_i-\mu_k)\T$, \quad $\pi_k\gets N_k/n$ \Comment{uses the new $\mu_k$}
+  \State Evaluate the log-likelihood \eqref{eq:gmm-loglik}.
+\Until{the log-likelihood increases by less than $\epsilon$}
+\Output{Parameters $(\pi_k,\mu_k,\Sigma_k)_{k=1}^K$ and responsibilities $\gamma_{ik}$ (soft cluster assignments).}
+\end{algorithmic}
+\end{algorithm}
+
+Each iteration increases the log-likelihood (\cref{prop:em-monotone} below), and the algorithm converges to a stationary point of the likelihood, typically a local maximum. Different initializations can give different solutions, so in practice one runs several and keeps the one with the highest likelihood.
+
+\section{The EM Algorithm}\label{sec:em}
+
+The algorithm above is an instance of a general method for maximum likelihood with latent variables. Write $X=(x_1,\dots,x_n)$ for the observed data and $Z=(z_1,\dots,z_n)$ for the latent variables. If $Z$ were observed, we would maximize the \emph{complete-data log-likelihood} $\log p(X,Z\given\theta)$, which is usually easy: for the GMM,
+\[
+\log p(X,Z\given\theta)=\sum_{i=1}^n\sum_{k=1}^K\ind[z_i=k]\,\log\big(\pi_k\,\cN(x_i\given\mu_k,\Sigma_k)\big),
+\]
+and its maximizer is a set of per-component Gaussian fits. Since $Z$ is unknown, EM replaces the complete-data log-likelihood by its expectation under the current posterior.
+
+\begin{definition}[Expected Complete-Data Log-Likelihood]\label{def:em-q}
+For current parameters $\theta^{\mathrm{old}}$,
+\[
+Q(\theta,\theta^{\mathrm{old}})=\E_{Z\sim p(Z\given X,\theta^{\mathrm{old}})}\big[\log p(X,Z\given\theta)\big]=\sum_Zp(Z\given X,\theta^{\mathrm{old}})\log p(X,Z\given\theta),
+\]
+with the sum replaced by an integral for continuous $Z$.
+\end{definition}
+
+\begin{algorithm}[H]
+\caption{Expectation Maximization (EM)}\label{alg:em}
+\begin{algorithmic}[1]
+\Input{Data $X$; joint model $p(X,Z\given\theta)$; number of iterations $L$ (or a tolerance).}
+\Init{Parameters $\theta^{(0)}$.}
+\For{$\ell=0,1,\dots,L-1$}
+  \State \textbf{E-step:} compute the posterior $p(Z\given X,\theta^{(\ell)})$ and hence $Q(\theta,\theta^{(\ell)})$.
+  \State \textbf{M-step:} $\theta^{(\ell+1)}\gets\argmax_\theta Q(\theta,\theta^{(\ell)})$.
+\EndFor
+\Output{Parameters $\theta^{(L)}$.}
+\end{algorithmic}
+\end{algorithm}
+
+For the GMM the posterior factorizes over data points, $p(z_i=k\given X,\theta)=\gamma_k(x_i)$, and $\E[\ind[z_i=k]\given X,\theta^{\mathrm{old}}]=\gamma_{ik}$, so
+\[
+Q(\theta,\theta^{\mathrm{old}})=\sum_{i=1}^n\sum_{k=1}^K\gamma_{ik}\log\big(\pi_k\,\cN(x_i\given\mu_k,\Sigma_k)\big).
+\]
+Maximizing this weighted sum of Gaussian log-densities gives exactly the M-step of \cref{alg:em-gmm}. EM is useful whenever the E-step posterior is tractable and the M-step is a weighted version of a problem with a closed-form solution.
+
+\subsection*{EM as Coordinate Ascent on the ELBO}
+
+The ELBO of \cref{sec:elbo} explains why EM works. For any distribution $q$ over $Z$ and any $\theta$, \cref{thm:elbo} gives
+\begin{equation}\label{eq:em-elbo}
+\log p(X\given\theta)=\ELBO(q,\theta)+\KL\big(q\,\|\,p(\cdot\given X,\theta)\big),\qquad
+\ELBO(q,\theta)=\E_{Z\sim q}[\log p(X,Z\given\theta)]+\cH(q).
+\end{equation}
+\begin{itemize}
+  \item \emph{E-step = maximize over $q$.} With $\theta=\theta^{\mathrm{old}}$ fixed, the ELBO is maximized by $q=p(Z\given X,\theta^{\mathrm{old}})$, which makes the KL term zero: the bound touches the log-likelihood at $\theta^{\mathrm{old}}$.
+  \item \emph{M-step = maximize over $\theta$.} With $q$ fixed, the entropy does not depend on $\theta$, so maximizing the ELBO over $\theta$ is maximizing $\E_q[\log p(X,Z\given\theta)]=Q(\theta,\theta^{\mathrm{old}})$.
+\end{itemize}
+
+\begin{proposition}[Monotonicity of EM]\label{prop:em-monotone}
+The iterates of \cref{alg:em} satisfy $\log p(X\given\theta^{(\ell+1)})\ge\log p(X\given\theta^{(\ell)})$ for every $\ell$.
+\end{proposition}
+
+With $q_\ell=p(Z\given X,\theta^{(\ell)})$, the two steps and $\KL\ge0$ give the chain
+\[
+\log p(X\given\theta^{(\ell+1)})\ \ge\ \ELBO(q_\ell,\theta^{(\ell+1)})\ \ge\ \ELBO(q_\ell,\theta^{(\ell)})\ =\ \log p(X\given\theta^{(\ell)}).
+\]
+The likelihood can only go up, but EM may stop at a local maximum or a saddle point, and its convergence can be slow.
+
+\begin{remark}[Variational Inference versus EM]\label{rem:vi-vs-em}
+Variational inference (\cref{ch:vi}) and EM maximize the same objective \eqref{eq:em-elbo}. EM assumes the exact posterior is available and maximizes exactly in each block. When the posterior is intractable, one restricts $q$ to a tractable family; the E-step then becomes a variational approximation (variational EM). When even that has no closed form, one takes stochastic gradient steps on $q$ and $\theta$ jointly, which is the variational autoencoder of \cref{sec:vae}.
+\end{remark}
+
+\section{K-Means as a Limit of EM}\label{sec:kmeans}
+
+Consider a GMM whose covariances are fixed at $\Sigma_k=\epsilon I$, so that only $\pi$ and $\mu$ are learned. The responsibilities become
+\[
+\gamma_{ik}=\frac{\pi_k\exp\big(-\norm{x_i-\mu_k}^2/(2\epsilon)\big)}{\sum_j\pi_j\exp\big(-\norm{x_i-\mu_j}^2/(2\epsilon)\big)}.
+\]
+As $\epsilon\to0$, the term with the smallest distance dominates the denominator, and (for $\pi_k>0$) $\gamma_{ik}\to r_{ik}=\ind\big[k=\argmin_j\norm{x_i-\mu_j}\big]$: soft assignments become hard. In the same limit $Q(\theta,\theta^{\mathrm{old}})=-\frac1{2\epsilon}\sum_{i,k}r_{ik}\norm{x_i-\mu_k}^2+\text{const}$, so the M-step minimizes the \emph{distortion}
+\[
+J(r,\mu)=\sum_{i=1}^n\sum_{k=1}^Kr_{ik}\norm{x_i-\mu_k}^2 .
+\]
+The slides state the limit with $\Sigma_k=I$; the variance must shrink, $\Sigma_k=\epsilon I$ with $\epsilon\to0$, for the assignments to become hard.
+
+\begin{algorithm}[H]
+\caption{K-Means}\label{alg:kmeans}
+\begin{algorithmic}[1]
+\Input{Data $x_1,\dots,x_n\in\R^p$; number of clusters $K$.}
+\Init{Centers $\mu_1,\dots,\mu_K$, e.g.\ $K$ distinct data points chosen at random.}
+\Repeat
+  \State \textbf{Assignment:} $r_{ik}\gets1$ if $k=\argmin_j\norm{x_i-\mu_j}^2$ and $r_{ik}\gets0$ otherwise \Comment{hard E-step}
+  \State \textbf{Update:} $\mu_k\gets\sum_ir_{ik}x_i\big/\sum_ir_{ik}$ for every nonempty cluster $k$ \Comment{M-step}
+\Until{the assignments do not change}
+\Output{Centers $\mu_k$ and cluster labels $\argmax_kr_{ik}$.}
+\end{algorithmic}
+\end{algorithm}
+
+No step increases $J$, and there are finitely many assignments, so $K$-means stops after finitely many iterations, at a local minimum of $J$.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+ & $K$-means & EM for a GMM \\
+\midrule
+Assignments & hard, nearest center & soft, responsibilities $\gamma_{ik}$ \\
+Cluster shape & spherical, equal size (Euclidean distance) & ellipsoidal, with covariance $\Sigma_k$ and weight $\pi_k$ \\
+Objective & distortion $J$ & log-likelihood \eqref{eq:gmm-loglik} \\
+Cost per iteration & low; converges in few iterations & higher; converges more slowly \\
+Output & a partition & a density model with uncertainty \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Both methods find only local optima and need $K$ to be chosen. $K$-means is often used to initialize EM.
+
+\section{Principal Component Analysis}\label{sec:pca}
+
+High-dimensional data often lie close to a low-dimensional subspace. A famous example: the first two principal components of genetic data from European individuals reproduce the map of Europe. A low-dimensional representation saves computation, allows visualization, and can improve generalization.
+
+PCA approximates each point by its projection onto a $K$-dimensional affine subspace, $K<p$:
+\[
+x_i\approx\tilde x_i=\bar x+Uz_i,\qquad z_i=U\T(x_i-\bar x),
+\]
+where $\bar x=\frac1n\sum_ix_i$ is the sample mean, $U\in\R^{p\times K}$ has orthonormal columns spanning the \emph{principal subspace}, and $z_i\in\R^K$ is the \emph{code} of $x_i$. The basis is chosen to minimize the reconstruction error
+\begin{equation}\label{eq:pca-objective}
+\min_{U:\,U\T U=I_K}\ \sum_{i=1}^n\big\|x_i-\bar x-UU\T(x_i-\bar x)\big\|^2 .
+\end{equation}
+
+\begin{proposition}[PCA Solution]\label{prop:pca}
+Let $\hat\Sigma=\frac1n\sum_i(x_i-\bar x)(x_i-\bar x)\T$ have eigenvalues $\lambda_1\ge\dots\ge\lambda_p$ with orthonormal eigenvectors $u_1,\dots,u_p$. Then $U=(u_1,\dots,u_K)$ minimizes \eqref{eq:pca-objective}, with minimal value $n\sum_{j>K}\lambda_j$. The same $U$ maximizes the variance $\sum_{k=1}^Ku_k\T\hat\Sigma u_k$ of the projected data, and the variance of the $k$-th code coordinate is $\lambda_k$.
+\end{proposition}
+
+Minimum reconstruction error and maximum variance are the same criterion, because for an orthogonal projection the squared length of each centered point splits into the part captured by the subspace and the residual (Pythagoras). Any orthonormal basis of the same subspace gives the same reconstructions; the eigenvectors are the canonical choice.
+
+\begin{algorithm}[H]
+\caption{Principal Component Analysis (PCA)}\label{alg:pca}
+\begin{algorithmic}[1]
+\Input{Data $x_1,\dots,x_n\in\R^p$; target dimension $K<p$.}
+\State $\bar x\gets\frac1n\sum_ix_i$; \quad $\hat\Sigma\gets\frac1n\sum_i(x_i-\bar x)(x_i-\bar x)\T$
+\State Compute the $K$ leading eigenvectors $u_1,\dots,u_K$ of $\hat\Sigma$ (or the right singular vectors of the centered data matrix) and set $U\gets(u_1,\dots,u_K)$.
+\State $z_i\gets U\T(x_i-\bar x)$ and $\tilde x_i\gets\bar x+Uz_i$ for $i=1,\dots,n$.
+\Output{Principal directions $U$, eigenvalues $\lambda_1,\dots,\lambda_K$, codes $z_i$, reconstructions $\tilde x_i$.}
+\end{algorithmic}
+\end{algorithm}
+
+\section{Probabilistic PCA}\label{sec:ppca}
+
+PCA was motivated geometrically. It can also be obtained as maximum likelihood in a latent variable model, in which the latent variable is continuous instead of a cluster label.
+
+\begin{definition}[Probabilistic PCA]\label{def:ppca}
+\emph{Probabilistic PCA} (PPCA) with latent dimension $K<p$ is the model
+\[
+z\sim\cN(0,I_K),\qquad x\given z\sim\cN(Wz+\mu,\ \sigma^2I_p),
+\]
+with parameters $W\in\R^{p\times K}$, $\mu\in\R^p$, and $\sigma^2>0$.
+\end{definition}
+
+To generate a point, take a random linear combination $Wz$ of the columns of $W$, shift it by $\mu$, and add a small amount of isotropic noise. The data therefore concentrate near the affine subspace $\mu+\operatorname{span}(W)$, which plays the role of the principal subspace. Given $z$, the coordinates of $x$ are independent, the same structure as in naive Bayes (\cref{sec:naive-bayes}); all dependence between coordinates comes from the shared latent $z$.
+
+Unlike the GMM, PPCA has a Gaussian marginal. Since $x=Wz+\mu+\varepsilon$ with independent $z\sim\cN(0,I_K)$ and $\varepsilon\sim\cN(0,\sigma^2I_p)$ is an affine function of Gaussians (\cref{prop:linear-gaussian}),
+\[
+x\sim\cN(\mu,C),\qquad C=\Cov[x]=WW\T+\sigma^2I_p .
+\]
+The log-likelihood of the data is that of a Gaussian with this structured covariance,
+\[
+\log p(x_1,\dots,x_n\given W,\mu,\sigma^2)=-\frac{np}2\log(2\pi)-\frac n2\log|C|-\frac12\sum_{i=1}^n(x_i-\mu)\T C^{-1}(x_i-\mu).
+\]
+The model is not identifiable: for any orthogonal $R\in\R^{K\times K}$, $(WR)(WR)\T=WW\T$, so $W$ and $WR$ give the same distribution, just as PCA determines the subspace but not a particular basis.
+
+\begin{theorem}[Maximum Likelihood for PPCA; Tipping and Bishop, 1999]\label{thm:ppca-mle}
+Let $\hat\Sigma$, $\lambda_1\ge\dots\ge\lambda_p$, and $u_1,\dots,u_p$ be as in \cref{prop:pca}, and let $\hat U_K=(u_1,\dots,u_K)$ and $\hat L_K=\diag(\lambda_1,\dots,\lambda_K)$. The maximum likelihood estimates are
+\[
+\hat\mu=\bar x,\qquad
+\hat\sigma^2=\frac1{p-K}\sum_{j=K+1}^p\lambda_j,\qquad
+\hat W=\hat U_K\big(\hat L_K-\hat\sigma^2I_K\big)^{1/2}R,
+\]
+for an arbitrary orthogonal matrix $R$.
+\end{theorem}
+
+The fitted covariance is $\hat C=\hat U_K(\hat L_K-\hat\sigma^2I)\hat U_K\T+\hat\sigma^2I$, which is easiest to read along the eigenvectors. For $j\le K$, $u_j\T\hat Cu_j=(\lambda_j-\hat\sigma^2)+\hat\sigma^2=\lambda_j$; for $j>K$, $u_j\T\hat Cu_j=\hat\sigma^2$. The model reproduces the sample variance exactly along the $K$ principal directions and replaces it by a single average value $\hat\sigma^2$ in all remaining directions: $\hat\sigma^2$ is the variance that the principal subspace fails to explain.
+
+\begin{proposition}[Posterior over the Code]\label{prop:ppca-posterior}
+In PPCA, with $M=W\T W+\sigma^2I_K$,
+\[
+z\given x\sim\cN\big(M^{-1}W\T(x-\mu),\ \sigma^2M^{-1}\big).
+\]
+As $\sigma^2\to0$, the posterior mean tends to $(W\T W)^{-1}W\T(x-\mu)$, the coordinates of the orthogonal projection of $x-\mu$ onto $\operatorname{span}(W)$. With the maximum likelihood estimates this limit is $R\T\hat L_K^{-1/2}\hat U_K\T(x-\bar x)$, the PCA code of \cref{alg:pca} up to a rescaling of each coordinate and a rotation.
+\end{proposition}
+
+This is another instance of \cref{prop:linear-gaussian}. The slides write the posterior covariance with an extra factor $W\T(x-\mu)$; the covariance does not depend on $x$, and the correct expression is $\sigma^2M^{-1}$.
+
+Why bother with the probabilistic version? A full-covariance Gaussian in $\R^p$ needs $p(p+1)/2+p$ parameters, whereas PPCA models only the $K$ strongest correlations with $O(Kp)$ parameters. Having a likelihood allows comparison with other density models and a principled choice of $K$, for example by placing a prior on $W$ (Bayesian PCA). Finally, the parameters can also be fitted by EM (\cref{alg:em}), with the Gaussian posterior of \cref{prop:ppca-posterior} as the E-step, which avoids forming and diagonalizing $\hat\Sigma$ and scales to very large, high-dimensional data sets.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Model & Latent variable & Posterior & Use \\
+\midrule
+Gaussian mixture (\cref{sec:gmm}) & discrete $z\in\{1,\dots,K\}$ & exact: responsibilities & clustering, density estimation \\
+Probabilistic PCA (\cref{sec:ppca}) & continuous $z\in\R^K$, Gaussian & exact Gaussian & dimension reduction \\
+Bayesian linear regression (\cref{sec:blr}) & regression weights, Gaussian prior & exact Gaussian & regression with uncertainty \\
+Variational autoencoder (\cref{sec:vae}) & continuous $z\in\R^K$, Gaussian & intractable; amortized Gaussian $q_\phi$ & generation, representation learning \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Autoencoders}\label{sec:autoencoder}
+
+PCA is linear. Neural networks (\cref{ch:nn}) provide nonlinear maps, and an \emph{autoencoder} uses them to compress data through a bottleneck.
+
+\begin{definition}[Autoencoder]\label{def:autoencoder}
+An \emph{autoencoder} consists of an \emph{encoder} $g\colon\R^p\to\R^K$ and a \emph{decoder} $f\colon\R^K\to\R^p$ with $K\ll p$, both neural networks. The code of $x$ is $z=g(x)$, its reconstruction is $\tilde x=f(g(x))$, and the networks are trained to minimize the reconstruction error $\frac12\sum_{i=1}^n\norm{f(g(x_i))-x_i}^2$ by stochastic gradient descent (\cref{alg:nn-training}).
+\end{definition}
+
+\begin{remark}[Linear Autoencoders Are PCA]\label{rem:linear-ae-pca}
+If the encoder and decoder are linear, $g(x)=Ax$ and $f(z)=Bz$ (with centered data), the reconstruction $BAx$ is a rank-$K$ linear map, and minimizing the squared error over such maps is the PCA problem \eqref{eq:pca-objective}. The $K$ hidden units then span the same subspace as the first $K$ principal components, although they need not be orthonormal or ordered. Adding nonlinear hidden layers before and after the bottleneck gives a nonlinear generalization of PCA: the encoder maps the data nonlinearly to codes in $\R^K$, and the decoder maps the codes onto a curved $K$-dimensional surface in $\R^p$ instead of a subspace. Deep autoencoders reconstruct images such as MNIST digits far better than PCA with the same code size, but they are harder to train.
+\end{remark}
+
+A \emph{denoising autoencoder} receives a corrupted input and is trained to reconstruct the clean original. It learns to remove noise of the type seen in training, which requires many clean--noisy pairs and knowledge of the noise. Loopy belief propagation on an Ising model (\cref{sec:loopy-bp}) denoises a single image without any training data, using only a prior that neighboring pixels agree.
+
+Deterministic autoencoders have two weaknesses as generative models. First, nothing forces nearby inputs to have nearby codes, or the codes to fill a region of $\R^K$; the code space can have gaps, and decoding a point in a gap gives an unrealistic output, so we cannot generate new data by picking a code. Second, the squared error is a poor measure of perceptual quality: a reconstruction shifted by one pixel looks correct but is heavily penalized. A probabilistic formulation addresses the first issue directly.
+
+\section{Variational Autoencoders}\label{sec:vae}
+
+A \emph{variational autoencoder} (VAE) is a latent variable model with a neural network decoder, trained by maximizing the ELBO with an encoder that outputs a distribution rather than a point.
+
+\begin{definition}[Variational Autoencoder]\label{def:vae}
+The \emph{generative model} is
+\[
+z\sim p(z)=\cN(0,I_K),\qquad x\given z\sim p_\theta(x\given z),
+\]
+where the parameters of $p_\theta(x\given z)$ are computed from $z$ by a decoder network $f_\theta$; for binary images such as MNIST, $p_\theta(x\given z)=\prod_{d=1}^p\mathrm{Bernoulli}\big(x_d;f_\theta(z)_d\big)$. The \emph{inference model} (encoder, recognition model) is a network $g_\phi$ that maps $x$ to the mean and log standard deviation of a Gaussian,
+\[
+q_\phi(z\given x)=\cN\big(z\given\mu_\phi(x),\diag(\sigma_\phi(x)^2)\big),\qquad g_\phi(x)=\big(\mu_\phi(x),\log\sigma_\phi(x)\big).
+\]
+\end{definition}
+
+The posterior $p_\theta(z\given x)$ is intractable because the decoder is nonlinear, so we use variational inference. For one data point, the ELBO in the form \eqref{eq:elbo-recon-kl} is
+\begin{equation}\label{eq:vae-elbo}
+\ELBO(\theta,\phi;x)=\E_{z\sim q_\phi(z\given x)}\big[\log p_\theta(x\given z)\big]-\KL\big(q_\phi(z\given x)\,\|\,p(z)\big)\le\log p_\theta(x),
+\end{equation}
+and training maximizes $\sum_i\ELBO(\theta,\phi;x_i)$ over both $\theta$ and $\phi$. Its negative is the VAE loss. The first term is a \emph{reconstruction} term (for the Bernoulli decoder, minus the binary cross-entropy between $x$ and the decoded probabilities); the second is a \emph{regularizer} that keeps each $q_\phi(z\given x_i)$ close to the prior. For the Gaussian encoder it has a closed form,
+\[
+\KL\big(\cN(\mu,\diag(\sigma^2))\,\|\,\cN(0,I_K)\big)=\frac12\sum_{j=1}^K\big(\mu_j^2+\sigma_j^2-1-\log\sigma_j^2\big).
+\]
+
+\begin{remark}[Amortized Inference]\label{rem:amortized}
+A \emph{standard} (non-amortized) VAE gives each data point its own variational parameters $\phi_i=(\mu_i,\log\sigma_i)$ and optimizes them separately, as in \cref{alg:svi}. With $n$ data points this means $n$ separate optimization problems, and a new point requires a new optimization. An \emph{amortized} VAE learns one function $x\mapsto(\mu_\phi(x),\sigma_\phi(x))$ shared by all points: the cost of inference is paid once, during training, and inference for a new point is a single forward pass. The number of encoder parameters no longer grows with $n$. The price is the \emph{amortization gap}: the per-point parameters are more expressive, because nothing is shared across data points.
+\end{remark}
+
+The expectation in \eqref{eq:vae-elbo} depends on $\phi$, so we use the reparameterization trick of \cref{sec:reparam}: $z=\mu_\phi(x)+\sigma_\phi(x)\odot\varepsilon$ with $\varepsilon\sim\cN(0,I_K)$. The sample is then a differentiable function of $\phi$, and gradients flow from the decoder through $z$ into the encoder.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=6mm and 7mm,
+  box/.style={draw, rounded corners=2pt, align=center, font=\small, minimum height=8mm, fill=white},
+  arr/.style={-{Stealth[length=2mm]}, thick}
+]
+\node (x) {$x$};
+\node[box, right=of x] (enc) {encoder\\$g_\phi$};
+\node[box, right=of enc] (ms) {$\mu_\phi(x)$\\$\sigma_\phi(x)$};
+\node[box, right=of ms] (z) {$z=\mu+\sigma\odot\varepsilon$};
+\node[above=5mm of z, font=\small] (eps) {$\varepsilon\sim\cN(0,I)$};
+\node[box, right=of z] (dec) {decoder\\$f_\theta$};
+\node[right=of dec] (xt) {$p_\theta(x\given z)$};
+\draw[arr] (x) -- (enc);
+\draw[arr] (enc) -- (ms);
+\draw[arr] (ms) -- (z);
+\draw[arr] (eps) -- (z);
+\draw[arr] (z) -- (dec);
+\draw[arr] (dec) -- (xt);
+\draw[dashed, thin] (ms.south) -- ++(0,-6mm) node[below, font=\scriptsize\itshape] {KL to prior $\cN(0,I)$};
+\draw[dashed, thin] (xt.south) -- ++(0,-6mm) node[below, font=\scriptsize\itshape] {reconstruction term};
+\end{tikzpicture}
+\caption{The VAE computation for one data point. The noise $\varepsilon$ enters from outside, so the loss is differentiable in both $\phi$ and $\theta$.}
+\label{fig:vae}
+\end{figure}
+
+\begin{algorithm}[H]
+\caption{Training a Variational Autoencoder}\label{alg:vae}
+\begin{algorithmic}[1]
+\Input{Data $x_1,\dots,x_n$; encoder $g_\phi$ and decoder $f_\theta$ (neural networks); latent dimension $K$; minibatch size $B$; learning rate $\eta$; number of iterations $T$.}
+\Init{Random $\theta$ and $\phi$.}
+\For{$t=1,\dots,T$}
+  \State Sample a minibatch $\{x_i\}_{i\in\cB}$ of size $B$.
+  \For{$i\in\cB$}
+    \State $(\mu_i,\log\sigma_i)\gets g_\phi(x_i)$ \Comment{encode}
+    \State Draw $\varepsilon_i\sim\cN(0,I_K)$; \quad $z_i\gets\mu_i+\sigma_i\odot\varepsilon_i$ \Comment{reparameterize}
+    \State $\ell_i\gets-\log p_\theta(x_i\given z_i)+\frac12\sum_{j=1}^K\big(\mu_{ij}^2+\sigma_{ij}^2-1-\log\sigma_{ij}^2\big)$ \Comment{decode; $-\widehat{\ELBO}$}
+  \EndFor
+  \State $(\theta,\phi)\gets(\theta,\phi)-\eta\,\nabla_{\theta,\phi}\frac1B\sum_{i\in\cB}\ell_i$ \Comment{backpropagation; in practice Adam}
+\EndFor
+\Output{Decoder $p_\theta(x\given z)$ and encoder $q_\phi(z\given x)$. To generate: draw $z\sim\cN(0,I_K)$, then $x\sim p_\theta(x\given z)$.}
+\end{algorithmic}
+\end{algorithm}
+
+The gradient in line 8 is computed by backpropagation (\cref{alg:backprop}) through decoder, sampling step, and encoder, as in \cref{fig:vae}. After training, new data are generated by decoding samples from the prior, and because the KL term packs the codes of the training data into the region where the prior has mass, the decoder has learned to produce realistic outputs throughout that region. Codes vary smoothly, so one can interpolate between two inputs by decoding points on the segment between their codes. The codes of a VAE trained on MNIST fill the latent space more evenly than those of a deterministic autoencoder, whose clusters are separated by gaps.
+
+The objective has two equivalent readings, both from \cref{sec:elbo}:
+\[
+\ELBO(\theta,\phi;x)=\underbrace{\E_{q_\phi}[\log p_\theta(x,z)]+\cH(q_\phi)}_{\text{expected complete-data log-likelihood + entropy}}
+=\underbrace{\E_{q_\phi}[\log p_\theta(x\given z)]-\KL(q_\phi\,\|\,p)}_{\text{reconstruction minus distance to the prior}} .
+\]
+The first maximizes the complete-data log-likelihood, as in EM, while penalizing encoders with low entropy; the second maximizes the reconstruction likelihood while penalizing encoders that move far from the prior.
+
+\begin{remark}[Connections]\label{rem:vae-connections}
+The VAE combines three earlier ideas. It is stochastic variational inference (\cref{alg:svi}) with amortized variational parameters; it is EM (\cref{rem:vi-vs-em}) with both steps replaced by joint stochastic gradient steps on the same ELBO; and it is a nonlinear PPCA. If the decoder is linear with Gaussian noise, $p_\theta(x\given z)=\cN(Wz+\mu,\sigma^2I)$, the generative model is exactly PPCA (\cref{def:ppca}), whose posterior is Gaussian (\cref{prop:ppca-posterior}), so a Gaussian encoder can make the bound tight.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+VAEs learn a smooth, low-dimensional latent space and a generative model at the same time, they scale to large data sets through minibatch SGD, and the amortized encoder gives approximate posteriors for new data in a single pass. However, they maximize a lower bound rather than the likelihood itself; the Gaussian encoder limits how tight the bound can be, and the KL term can push the model to ignore some latent dimensions altogether. Samples from image VAEs with simple Gaussian or Bernoulli decoders tend to be blurry.
+\end{notebox}
+
+\begin{notebox}{Limitations and what comes next}
+The models of this chapter learn representations of images and other vectors, and the VAE is the first deep generative model of the course. Two directions follow. \Cref{ch:attention} turns to learned representations of text, where the inputs are sequences of tokens, and introduces embeddings and the attention mechanism. \Cref{ch:diffusion} returns to generation: diffusion models keep the ELBO of the VAE but fix the encoder to a gradual noising process with latent variables of the same dimension as the data, and learn a decoder that removes the noise in many small steps, which produces far sharper samples.
+\end{notebox}

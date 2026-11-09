@@ -1,0 +1,164 @@
+\chapter{Beyond Linearity}\label{ch:nonlinear}
+
+The linear model of \cref{ch:linreg} is linear in two senses: in the parameters $\beta$ and in the features $X$. Only the first is needed for the machinery built so far. Least squares, its closed form, cross-validation, subset selection, ridge and lasso, and the Bayesian treatment of \cref{sec:blr} all work for any model of the form $y=\beta_0+\sum_j\beta_jb_j(x)+\varepsilon$ with fixed functions $b_j$. Linearity in $X$, on the other hand, is almost always an approximation, and sometimes a poor one. This chapter relaxes it in two ways. \Cref{sec:basis,sec:splines} replace $x$ by a set of basis functions (polynomials, step functions, splines) and then fit a linear model; \cref{sec:local-regression} abandons a global formula and fits a simple model near each target point, generalizing $k$-nearest neighbors; and \cref{sec:gam} combines one-dimensional fits of either kind into additive models for many predictors.
+
+\section{Basis Expansions}\label{sec:basis}
+
+The model $Y=\beta_0+\beta_1X_1+\beta_2X_2+\beta_3X_1^2+\beta_4X_2^2+\beta_5X_1X_2+\varepsilon$ is quadratic in $X=(X_1,X_2)$ but linear in $\beta$: it is an ordinary linear regression on the derived features $X_1,X_2,X_1^2,X_2^2,X_1X_2$. This observation is the whole idea of the section.
+
+\begin{definition}[Basis Expansion]\label{def:basis-expansion}
+Given fixed functions $b_1,\dots,b_K$ of the input, the \emph{basis function model} is
+\[
+y_i=\beta_0+\beta_1b_1(x_i)+\beta_2b_2(x_i)+\dots+\beta_Kb_K(x_i)+\varepsilon_i .
+\]
+We write $\phi(x)=(1,b_1(x),\dots,b_K(x))$ for the resulting feature map.
+\end{definition}
+
+\begin{algorithm}[H]
+\caption{Regression with a Basis Expansion}\label{alg:basis-fit}
+\begin{algorithmic}[1]
+\Input{Data $\cD=\{(x_i,y_i)\}_{i=1}^n$; a family of bases indexed by a complexity parameter $K$ (degree, number of bins, number of knots); candidate values of $K$.}
+\For{each candidate $K$}
+  \State Form the design matrix $B_K$ with rows $\phi(x_i)\T=(1,b_1(x_i),\dots,b_M(x_i))$: one column per basis function of the size-$K$ family plus the intercept (e.g.\ $M=K$ for degree $K$, $M=K+3$ for a cubic spline with $K$ knots).
+  \State Fit $\hat\beta$ by least squares on $(B_K,y)$ (or by ridge or lasso, \cref{ch:shrinkage}); record the CV error from \cref{alg:kfold-cv}.
+\EndFor
+\State Choose $K^*$ with the smallest CV error and refit on all data.
+\Output{$\hatf(x)=\hat\beta\T\phi(x)$ with basis size $K^*$.}
+\end{algorithmic}
+\end{algorithm}
+
+Because the fit is still least squares, standard errors and pointwise confidence bands for $\hatf(x)$ follow from \cref{prop:ols-moments} applied to $B_K$. The same expansion can be used inside logistic regression (\cref{sec:logistic}), for instance to model $\Prob(\text{wage}>250\given\text{age})$ with $\mathrm{logit}\,\Prob(Y=1\given x)=\beta\T\phi(x)$, fitted by maximum likelihood. The choice of basis is what distinguishes the methods below.
+
+\smallskip\noindent\textbf{Polynomial regression.} Take $b_k(x)=x^k$, $k=1,\dots,d$. The individual coefficients are hard to interpret, and one looks at the fitted curve instead. The degree is chosen by cross-validation and is rarely larger than $3$ or $4$, because high-degree polynomials become wildly flexible. Polynomials impose a \emph{global} structure: changing the data in one region moves the fit everywhere, and their tail behavior makes them notoriously bad at extrapolation.
+
+\smallskip\noindent\textbf{Step functions.} Cut the range of $X$ at points $c_1<\dots<c_K$ and use the indicators
+\[
+C_0(x)=\ind\{x<c_1\},\quad C_k(x)=\ind\{c_k\le x<c_{k+1}\}\ (1\le k<K),\quad C_K(x)=\ind\{c_K\le x\}.
+\]
+These $K+1$ dummy variables sum to one, so with an intercept one drops $C_0$, exactly as with qualitative predictors in \cref{sec:linreg-extensions}. The fit is piecewise constant; $\beta_k$ is the average change in the response for $c_k\le X<c_{k+1}$ relative to $X<c_1$. Step functions are easy to fit and interpret, and are popular in biostatistics and epidemiology, but they miss trends within bins, and good cut points are hard to specify.
+
+\begin{remark}[Connection to Trees]
+A step function with well-chosen cut points can be very effective, but the cut points must be fixed in advance. Regression trees (\cref{ch:trees}) choose the cut points from the data, recursively and in several variables at once, which turns this weakness into a method.
+\end{remark}
+
+\section{Regression Splines}\label{sec:splines}
+
+Polynomials are smooth but global; step functions are local but discontinuous. Piecewise polynomials combine the two: fit a separate low-degree polynomial on each interval between \emph{knots} $\xi_1<\dots<\xi_K$. With $K$ knots one fits $K+1$ polynomials, and more knots give a more flexible fit. Unconstrained, however, the pieces jump at the knots, which looks unnatural and wastes parameters. Splines add constraints at the knots.
+
+\begin{definition}[Spline]\label{def:spline}
+A \emph{spline of degree $d$} with knots $\xi_1<\dots<\xi_K$ is a function that is a polynomial of degree $d$ on each interval between consecutive knots (and beyond the extreme knots) and has continuous derivatives up to order $d-1$ at every knot.
+\end{definition}
+
+The constraints are linear in the coefficients, so the space of splines with given knots is a linear space, and a spline regression is a basis function model. A convenient basis uses the \emph{truncated power functions} $(x-\xi)_+^d$, where $(u)_+=\max(u,0)$.
+
+\begin{proposition}[Truncated Power Bases]\label{prop:spline-basis}
+\leavevmode
+\begin{enumerate}[(i)]
+  \item \emph{Linear splines} (continuous, piecewise linear) with knots $\xi_1,\dots,\xi_K$ are exactly the functions
+  \[
+  f(x)=\beta_0+\beta_1x+\sum_{k=1}^K\beta_{k+1}(x-\xi_k)_+ .
+  \]
+  \item \emph{Cubic splines} (piecewise cubic with continuous first and second derivatives) are exactly the functions
+  \[
+  f(x)=\beta_0+\beta_1x+\beta_2x^2+\beta_3x^3+\sum_{k=1}^K\beta_{k+3}(x-\xi_k)_+^3 ,
+  \]
+  so a cubic spline with $K$ knots has $K+4$ parameters.
+\end{enumerate}
+\end{proposition}
+
+Each truncated power function is zero to the left of its knot, so adding it changes the fit only to the right of the knot, and $(x-\xi)_+^3$ has continuous first and second derivatives but a jump in the third derivative at $\xi$. In the linear spline, $\beta_1$ is the slope for $X<\xi_1$ and $\beta_{k+1}$ is the change in slope at $\xi_k$. Polynomial regression (no knots) and step functions (degree $0$, where no continuity is required) are special cases of splines.
+
+\begin{remark}[Notation in the Slides]
+The slides list the linear spline basis as $b_1(x)=x$ and $b_k(x)=(x-\xi_{k-1})_+$ for $k=1,\dots,K$; the index should run over $k=2,\dots,K+1$, as in \cref{prop:spline-basis}(i).
+\end{remark}
+
+Splines can still behave badly near the boundary of the data, where a cubic piece is constrained by few observations and the confidence bands flare out. A \emph{natural spline} adds boundary constraints: the function is required to be linear beyond the outermost knots. For a natural cubic spline this removes two parameters at each end and gives more stable estimates near the boundary.
+
+\smallskip\noindent\textbf{Choosing the knots.} In practice the knots are placed at quantiles of the observed $x_i$, or evenly over the range of $X$; their exact placement is usually not crucial. The number of knots $K$ is the complexity parameter of \cref{alg:basis-fit} and is chosen by cross-validation. A related method, the \emph{smoothing spline}, avoids choosing knots altogether: it places a knot at every data point and controls flexibility with a roughness penalty instead, in the same spirit as ridge regression.
+
+\begin{notebox}{Pros and Cons}
+Regression splines are flexible but stable: the knots give local flexibility where polynomials would need a high global degree, the continuity constraints keep the fit smooth, and natural splines tame the boundary. Since they are linear models in a basis, all inference and selection tools apply. They are, however, designed for a single predictor (for several, they are combined additively as in \cref{sec:gam}), and the number and placement of knots must still be chosen.
+\end{notebox}
+
+\section{Local Regression}\label{sec:local-regression}
+
+The basis function methods fit one global formula. The $k$-nearest neighbor method of \cref{alg:knn} instead predicts at a target point $x_0$ from the training observations near $x_0$ only,
+\[
+\hatf(x_0)=\frac1k\sum_{i\colon x_i\in N_k(x_0)}y_i ,
+\]
+where $N_k(x_0)$ is the set of the $k$ nearest training inputs. Recall that $k$ controls the bias--variance trade-off: small $k$ gives a flexible, high-variance fit, large $k$ a smooth, biased one, and $k$ is chosen by cross-validation. Two refinements improve on the plain local average.
+
+\smallskip\noindent\textbf{Weighted $k$-NN.} Give closer neighbors more weight,
+\[
+\hatf(x_0)=\sum_{i\colon x_i\in N_k(x_0)}w_i(x_0)\,y_i,\qquad w_i(x_0)\ge0,\quad \sum_{i\colon x_i\in N_k(x_0)}w_i(x_0)=1 .
+\]
+A popular choice is \emph{inverse distance weighting}, $w_i(x_0)\propto1/\norm{x_i-x_0}_2$; another is a smooth bump such as the tricube function of the scaled distance. The slides write the weights as $K(x_i,x_0)$ and call them kernel weights; we use $w_i(x_0)$ to keep $K$ and $k$ for other purposes.
+
+\smallskip\noindent\textbf{Local linear regression.} The local average fits a constant near $x_0$. Fitting a line instead removes much of the bias near the boundary and where $f$ has a slope:
+\[
+(\hat\beta_0,\hat\beta_1)=\argmin_{\beta_0,\beta_1}\sum_{i\colon x_i\in N_k(x_0)}w_i(x_0)\,\big(y_i-\beta_0-\beta_1\T x_i\big)^2,\qquad \hatf(x_0)=\hat\beta_0+\hat\beta_1\T x_0 .
+\]
+This is a weighted least squares problem solved separately for every target point. With a constant instead of a line, the minimizer is the weighted average above, so weighted $k$-NN is local regression of degree $0$.
+
+\begin{algorithm}[H]
+\caption{Local Regression}\label{alg:local-regression}
+\begin{algorithmic}[1]
+\Input{Training data $\{(x_i,y_i)\}_{i=1}^n$; span $s\in(0,1]$ (neighborhood of $k=\lceil sn\rceil$ points) or number of neighbors $k$; weight function; local degree $q\in\{0,1\}$; target point $x_0$.}
+\State Find the $k$ training inputs closest to $x_0$, forming $N_k(x_0)$.
+\State Assign weights $w_i(x_0)$ to $i\in N_k(x_0)$, decreasing in $\norm{x_i-x_0}$ (e.g.\ inverse distance or tricube); $w_i(x_0)=0$ otherwise.
+\If{$q=0$}
+  \State $\hatf(x_0)\gets\sum_iw_i(x_0)\,y_i\big/\sum_iw_i(x_0)$ \Comment{weighted $k$-NN}
+\Else
+  \State Solve the weighted least squares problem for $(\hat\beta_0,\hat\beta_1)$.
+  \State $\hatf(x_0)\gets\hat\beta_0+\hat\beta_1\T x_0$ \Comment{local linear fit}
+\EndIf
+\Output{$\hatf(x_0)$. Repeat for every point at which a prediction is needed; choose $s$ (or $k$) by cross-validation.}
+\end{algorithmic}
+\end{algorithm}
+
+Local regression is a \emph{memory-based} method: like $k$-NN it keeps the training data and does its fitting at prediction time. With two predictors one uses two-dimensional neighborhoods and fits a plane. Beyond three or four predictors, however, the neighborhoods that contain enough points are no longer local, and local regression suffers from the curse of dimensionality discussed in \cref{sec:knn}.
+
+\begin{remark}[Connection to Attention]\label{rem:local-attention}
+The prediction $\hatf(x_0)=\sum_iw_i(x_0)\,y_i$ with nonnegative weights summing to one, computed from a similarity between $x_0$ and each $x_i$, is a \emph{kernel smoother}. The attention mechanism of transformers (\cref{sec:attention}) has exactly this form: a query is compared with every key, the similarities are turned into weights by a softmax, and the output is the weighted average of the values.
+\end{remark}
+
+\section{Generalized Additive Models}\label{sec:gam}
+
+Splines and local regression work well for one or two predictors. For larger $p$, generalized additive models keep a separate nonlinear function for each predictor and add them up.
+
+\begin{definition}[Generalized Additive Model]\label{def:gam}
+A \emph{generalized additive model} (GAM) for regression is
+\[
+y_i=\beta_0+f_1(x_{i1})+f_2(x_{i2})+\dots+f_p(x_{ip})+\varepsilon_i ,
+\]
+where each $f_j$ is a function of one predictor: linear, polynomial, a step function, a spline, or a local regression fit. For a binary response, the same additive form models the log-odds, $\mathrm{logit}\,\Prob(Y=1\given x)=\beta_0+\sum_jf_j(x_j)$.
+\end{definition}
+
+When each $f_j$ is represented in a basis (polynomials, steps, regression or natural splines), the GAM is one large basis function model: concatenate the basis columns of all predictors into a single design matrix and fit by least squares, or by maximum likelihood in the logistic case. Components fitted by a smoother rather than by least squares on a fixed basis, such as local regression or smoothing splines, are fitted by \emph{backfitting}: cycle through the predictors and refit each $f_j$ to the partial residuals $y_i-\beta_0-\sum_{l\ne j}f_l(x_{il})$ until the fits stabilize. On the Wage data, $\text{wage}=\beta_0+f_1(\text{year})+f_2(\text{age})+f_3(\text{education})+\varepsilon$ with natural splines for year and age and a step function for the qualitative variable education gives curves that can be read off one at a time.
+
+\begin{notebox}{Pros and Cons}
+GAMs fit a nonlinear function of each predictor automatically, which can improve prediction substantially over a linear model. Because the model is additive, the effect of each $X_j$ can still be examined with the other variables held fixed, and additivity sidesteps the curse of dimensionality that defeats local regression. The price is that GAMs miss interactions: an effect of $X_1$ that depends on $X_2$ must be added by hand, for example as a product term or a two-dimensional smoother $f_{12}(X_1,X_2)$.
+\end{notebox}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & Structure & Complexity parameter & Suited for \\
+\midrule
+Polynomial regression & global, smooth & degree $d$ & $p=1$, mild curvature \\
+Step functions & local, discontinuous & number of cut points & $p=1$, interpretable bins \\
+Regression / natural splines & local and smooth & number of knots $K$ & $p=1$ or $2$ \\
+$k$-NN, local regression & local, memory based & $k$ or span $s$ & $p\le3$ or $4$ \\
+GAM & additive in the predictors & one per component & many predictors, no interactions \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{remark}[Connection to Kernels and Neural Networks]
+All basis function methods choose a finite set of features by hand. Two later ideas remove this limitation from opposite directions. Kernel methods (\cref{sec:kernel-trick}) work with infinitely many basis functions at once, by noticing that a ridge fit in feature space only needs inner products $\phi(x)\T\phi(x')$; combined with the Bayesian view of \cref{sec:blr}, this gives Gaussian processes. Neural networks (\cref{ch:nn}) instead \emph{learn} the basis functions from the data, as the hidden units of a network.
+\end{remark}
+
+\begin{notebox}{Limitations and what comes next}
+Linear regression with basis expansions, local regression and GAMs already covers a wide range of regression models, but they were developed mainly for a quantitative response with squared-error loss. Many problems ask instead for a class label: whether a transaction is fraudulent, which digit is written, whether a patient has a disease. \Cref{ch:classification} turns to classification, where the squared loss is replaced by the $0$-$1$ loss and the Bayes classifier of \cref{def:bayes-classifier} becomes the target. The same tension between global parametric models (logistic regression) and flexible local ones ($k$-NN), and the same basis expansions, will reappear there.
+\end{notebox}

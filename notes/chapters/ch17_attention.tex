@@ -1,0 +1,312 @@
+\chapter{Embeddings and Attention}\label{ch:attention}
+
+Every method in this book so far assumed that an input is a vector $x\in\R^p$. Text is not: a document is a sequence of symbols of variable length, and two documents that mean the same thing may share no words at all. Before any model of \cref{part:prediction} can be applied, text must be turned into numbers, and the quality of that \emph{representation} often matters more than the choice of model. This chapter follows the development of text representations from hand-crafted to learned. \Cref{sec:text-representation} builds sparse count vectors (bag of words, $n$-grams, TF-IDF). \Cref{sec:embeddings} learns dense word embeddings with word2vec, and \cref{sec:contrastive} learns embeddings of whole texts and images by contrastive learning, which also powers retrieval-augmented generation. \Cref{sec:attention} introduces attention, which makes the representation of a token depend on its context, and \cref{sec:transformer} assembles attention into the transformer, the architecture behind modern language models.
+
+\section{Representing Text}\label{sec:text-representation}
+
+We fix some vocabulary. A \emph{token} is a single atom of text, usually a word; a \emph{document} is one complete data point; a \emph{span} is a contiguous group of tokens within a document; and the \emph{vocabulary} $\mathcal V$ is the list of the $M$ tokens the model knows. Language tasks come in the familiar flavors: classification of documents, spans or tokens (spam filtering, hate speech detection, named entities), regression (how many retweets will a post get), information extraction, retrieval (search engines, literature review), and generation (question answering, summarization, translation, chatbots).
+
+Consider spam filtering with data $\{(x_i,y_i)\}_{i=1}^n$, where $x_i$ is the text of an email and $y_i=1$ if it is spam. We want $f_\theta(x)\approx p(y=1\given x)$, which is a logistic regression problem (\cref{sec:logistic}) once $x$ is a vector.
+
+\begin{definition}[Bag of Words and $n$-Grams]\label{def:bow}
+Let the vocabulary consist of the $M$ most frequent tokens in the training corpus. The \emph{binary bag of words} of a document $x$ is the vector $h\in\{0,1\}^M$ with $h_j=1$ if and only if token $\mathcal V_j$ occurs in $x$; the \emph{count bag of words} replaces the indicator by the number of occurrences. An \emph{$n$-gram} is a contiguous sequence of $n$ tokens; using $n$-grams (bigrams, trigrams, \dots) instead of single tokens (unigrams) as vocabulary entries lets the representation capture short phrases.
+\end{definition}
+
+For example, with unigram vocabulary $(\text{This},\text{is},\text{a},\text{sentence})$ the document ``This is a sentence'' is $(1,1,1,1)$ and ``A sentence'' is $(0,0,1,1)$; with bigram vocabulary $(\text{This is},\text{is a},\text{a sentence})$ they become $(1,1,1)$ and $(0,0,1)$. Word order is lost beyond the window of an $n$-gram, hence the name ``bag''. Feeding the binary bag of words into naive Bayes (\cref{sec:naive-bayes}) gives the classical spam filter.
+
+Very common words such as ``the'' or ``a'' appear in almost every document and carry little information about which document is which. They are either removed as \emph{stopwords} or down-weighted.
+
+\begin{definition}[TF-IDF]\label{def:tfidf}
+The \emph{term frequency} $\mathrm{TF}(w,x)$ measures how often token $w$ occurs in document $x$: the raw count, its binarized version, the count divided by the length of $x$, or $\log(1+\text{count})$. With $N$ documents of which $N_w$ contain $w$, the \emph{inverse document frequency} is a decreasing function of $N_w$, most commonly
+\[
+\mathrm{IDF}(w)=\log\frac{N}{N_w}\qquad\text{or the smoothed}\qquad \log\frac{N}{N_w+1}.
+\]
+The \emph{TF-IDF} representation of $x$ has entries $\mathrm{TF}(w,x)\cdot\mathrm{IDF}(w)$.
+\end{definition}
+
+A token that occurs in every document has $\mathrm{IDF}=\log 1=0$ and disappears from the representation; a token concentrated in few documents is up-weighted. In the lecture example with the two documents ``This is a sentence. This is another sentence.'' and ``This is not a sentence. Yet another not a sentence'', only ``not'' and ``Yet'' survive in the second document, with weights $2\log_{10}2\approx0.602$ and $\log_{10}2\approx0.301$.
+
+\begin{remark}[BM25]
+TF-IDF ideas still underlie keyword search. The BM25 score of a document $d$ for a query $q$ is
+\[
+\mathrm{score}(d,q)=\sum_{w\in q}\mathrm{IDF}(w)\,\frac{\mathrm{TF}(w,d)\,(k_1+1)}{\mathrm{TF}(w,d)+k_1\big(1-b+b\,|d|/\mathrm{avgdl}\big)},
+\]
+where $\mathrm{avgdl}$ is the average document length. The parameter $k_1\in[1.2,2]$ makes the contribution of a term saturate as its count grows, and $b\in[0,1]$ (typically $0.75$) controls how strongly long documents are penalized; $b=0$ switches length normalization off.
+\end{remark}
+
+To compare documents we need a similarity. The standard choice in language processing is the \emph{cosine similarity}
+\[
+\cos(x,y)=\frac{x\T y}{\norm{x}\,\norm{y}},
+\]
+which ignores the overall scale of the vectors, so that a long and a short document on the same topic can still be similar.
+
+\begin{notebox}{Pros and Cons}
+Count representations are simple, interpretable, fast, and surprisingly strong baselines for classification and search. However, they are sparse and high-dimensional ($M$ is in the tens of thousands), they ignore word order beyond $n$ tokens, and distinct words are orthogonal: ``car'' and ``automobile'' are as dissimilar as ``car'' and ``banana''. The representation knows nothing about meaning.
+\end{notebox}
+
+\section{Word Embeddings}\label{sec:embeddings}
+
+All the vectors of \cref{sec:text-representation} are fixed functions of the text. The step taken in this section is to \emph{learn} the representation.
+
+\begin{definition}[Embedding]
+An \emph{embedding function} is a map $g\colon x\mapsto h\in\R^e$ from raw inputs (tokens, documents, images, or image--text pairs) to vectors in a space of moderate dimension $e$; $h$ is the \emph{embedding} of $x$. A predictor then factorizes as $f_\theta(x)=c_{\theta_1}\big(g_{\theta_2}(x)\big)$, with $c$ a classifier or regressor acting on the embedding.
+\end{definition}
+
+A good embedding places semantically similar inputs close together, so that similarity search, clustering, and semi-supervised learning can be done directly in embedding space. It also enables \emph{transfer learning}: an embedding trained on a large corpus is reused for a new task by training only a small \emph{linear head} (or \emph{linear probe}) on top of it, that is, a logistic or softmax regression (\cref{sec:softmax-regression}) on $h$.
+
+\begin{remark}[Connection to Autoencoders and PCA]
+The code of an autoencoder (\cref{sec:autoencoder}) and the principal component scores of PCA (\cref{sec:pca}) are embeddings learned by reconstruction. Word2vec learns embeddings by prediction instead: the representation of a word is whatever helps predict its neighbors.
+\end{remark}
+
+\subsection{Word2vec and the Skip-Gram Model}
+
+Word2vec (Mikolov et al., 2013) rests on the \emph{distributional hypothesis}: words with similar meanings occur in similar contexts. For a corpus $w_1,\dots,w_T$ and a window size $k$, the context of position $t$ is $\mathrm{context}(t)=\{t-k,\dots,t-1,t+1,\dots,t+k\}$. The \emph{skip-gram} task is to predict each context word from the center word, by maximizing the average log-likelihood
+\begin{equation}\label{eq:skipgram}
+\frac1T\sum_{t=1}^T\sum_{j\in\mathrm{context}(t)}\log p(w_j\given w_t).
+\end{equation}
+With vocabulary size $M$ and embedding dimension $e$, the model has two matrices $U,V\in\R^{M\times e}$. Writing $u_w$ for the row of $U$ that belongs to word $w$ (the product of the one-hot vector of $w$ with $U$) and $v_o$ for the row of $V$ that belongs to a context word $o$,
+\begin{equation}\label{eq:skipgram-softmax}
+p(o\given w)=\frac{\exp(u_w\T v_o)}{\sum_{r=1}^M\exp(u_w\T v_{r})}.
+\end{equation}
+
+\begin{algorithm}[H]
+\caption{Skip-Gram Word2vec}\label{alg:skipgram}
+\begin{algorithmic}[1]
+\Input{Corpus $w_1,\dots,w_T$ over a vocabulary of size $M$, window size $k$, embedding dimension $e$, learning rate $\eta$, number of steps $K$.}
+\Init{Word embeddings $U\in\R^{M\times e}$ and context embeddings $V\in\R^{M\times e}$ with small random entries.}
+\For{$\kappa=1,\dots,K$}
+  \State Sample a position $t$ and a context position $j\in\mathrm{context}(t)$; set $w\gets w_t$, $o\gets w_j$.
+  \State $\ell\gets-\log p(o\given w)$ with $p$ as in \eqref{eq:skipgram-softmax}.
+  \State $(U,V)\gets(U,V)-\eta\,\nabla_{U,V}\,\ell$ \Comment{only $u_w$ and the rows of $V$ change}
+\EndFor
+\Output{The matrix $U$; the embedding of the $i$-th vocabulary word is the $i$-th row of $U$. The matrix $V$ is discarded.}
+\end{algorithmic}
+\end{algorithm}
+
+In practice the pairs are processed in minibatches with SGD (\cref{alg:sgd}). The normalizing sum in \eqref{eq:skipgram-softmax} runs over the entire vocabulary at every step, which is too expensive for $M$ in the hundreds of thousands, and the original paper introduces several tricks to avoid it. The best known, \emph{negative sampling}, replaces the $M$-way softmax by a binary logistic regression that separates the observed pair $(w,o)$ from a few randomly drawn ``negative'' words. The reverse task, predicting the center word from its context, is called \emph{continuous bag of words} (CBOW).
+
+\begin{remark}[Connection to Softmax Regression]
+For a fixed center word $w$, \eqref{eq:skipgram-softmax} is multinomial logistic regression (\cref{sec:softmax-regression}) with $M$ classes, feature vector $u_w$ and coefficient vector $v_o$ for class $o$. What is new is that the features are learned along with the coefficients: skip-gram is a softmax regression whose inputs are themselves parameters, or equivalently a two-layer linear network (\cref{sec:mlp}) from a one-hot input to a softmax output. Fitting it is maximum likelihood (\cref{sec:mle}) on the pairs (center word, context word).
+\end{remark}
+
+The learned vectors have a striking linear structure. With $h(\cdot)$ denoting the word2vec embedding, $h(\text{Athens})-h(\text{Greece})+h(\text{Germany})$ is close to $h(\text{Berlin})$, and $h(\text{mice})-h(\text{mouse})+h(\text{dollar})$ is close to $h(\text{dollars})$. On a benchmark of such analogy questions in 14 categories, the original paper reports an accuracy of about 55--60\%.
+
+Word embeddings are building blocks. A token can be classified by feeding its embedding into logistic regression or naive Bayes; a document can be represented by the average of its word embeddings, possibly concatenated with its TF-IDF vector. If the context is restricted to the $k$ words \emph{preceding} a position, the CBOW softmax becomes a model of the next word given the last $k$ words, and sampling from it word by word generates text: this is a $k$-th order Markov language model (\cref{ch:pgm}) with a learned conditional distribution.
+
+\subsection{Tokenizers}
+
+Word-level vocabularies cannot handle rare or unseen words. Modern language models use \emph{tokenizers} trained on a large corpus that split text into subword units; byte-pair encoding, which repeatedly merges the most frequent adjacent pair of symbols, is the classical construction. Vocabulary sizes are large (about 128 thousand tokens for LLaMA 3 and DeepSeek-V3, about 200 thousand for GPT-4o), and their design trades compression (few tokens per text, also in languages other than English) against representational quality. Images can be tokenized as well, by cutting them into patches, which is how vision--language models consume them.
+
+\section{Contrastive Learning}\label{sec:contrastive}
+
+A word2vec vector is the same for every occurrence of a word, whatever the context. Modern embedding models map entire sentences, documents, or images to vectors, and they are trained directly for the property we want: similar inputs should have similar embeddings. Given an anchor $x$, a \emph{positive} example $v^+$ that should be close to it, and a \emph{negative} example $v^-$ that should not, two standard losses for an embedding network $f_\theta$ are the margin (triplet) loss and the softmax loss with temperature $\tau>0$,
+\begin{gather*}
+L(x,v^+,v^-)=\max\big(f(x)\T f(v^-)-f(x)\T f(v^+)+m,\;0\big),\\
+L(x,v^+,v^-)=-\log\frac{\exp\big(f(x)\T f(v^+)/\tau\big)}{\exp\big(f(x)\T f(v^+)/\tau\big)+\exp\big(f(x)\T f(v^-)/\tau\big)}.
+\end{gather*}
+The margin loss is zero once the positive beats the negative by at least $m$. The slides write it with a leading minus sign; as a loss to be minimized, the sign must be positive. With many negatives, the softmax loss becomes a classification problem: which of the candidates is the positive? It is a softmax regression (\cref{sec:softmax-regression}) whose logits are similarities. This loss is often called InfoNCE.
+
+Positives and negatives can come from class labels, from naturally paired data (a question and its answer, an image and its caption), or, without any labels, from data augmentation: two random augmentations of the same image (crops, color distortion, blur) form a positive pair, and augmentations of different images are negatives. This is SimCLR (Chen et al., 2020).
+
+\begin{algorithm}[H]
+\caption{SimCLR}\label{alg:simclr}
+\begin{algorithmic}[1]
+\Input{Unlabeled data, batch size $N$, temperature $\tau$, encoder $f$, projection head $g$, distribution $\cT$ of augmentations, learning rate $\eta$.}
+\Repeat
+  \State Sample a minibatch $x_1,\dots,x_N$.
+  \For{$i=1,\dots,N$}
+    \State Draw $t,t'\sim\cT$; \quad $z_{2i-1}\gets g\big(f(t(x_i))\big)$, \quad $z_{2i}\gets g\big(f(t'(x_i))\big)$.
+  \EndFor
+  \State $s_{ij}\gets z_i\T z_j/(\norm{z_i}\,\norm{z_j})$ for all $i,j\in\{1,\dots,2N\}$ \Comment{cosine similarity}
+  \State $\ell(i,j)\gets-\log\dfrac{\exp(s_{ij}/\tau)}{\sum_{k\ne i}\exp(s_{ik}/\tau)}$
+  \State $\cL\gets\frac1{2N}\sum_{i=1}^N\big(\ell(2i-1,2i)+\ell(2i,2i-1)\big)$
+  \State Update the parameters of $f$ and $g$ by a gradient step on $\cL$ with learning rate $\eta$.
+\Until{converged}
+\Output{The encoder $f$; the projection head $g$ is thrown away.}
+\end{algorithmic}
+\end{algorithm}
+
+Each augmented view has one positive (the other view of the same image) and $2N-2$ negatives (the other images in the batch), so large batches give many negatives for free. The representation $h=f(\cdot)$ before the projection head is the one kept for downstream tasks.
+
+Text embedding models such as E5 (Wang et al., 2024) are trained in three phases: start from a pretrained language model (for example BERT, \cref{sec:transformer}), pretrain contrastively on a large set of weakly paired texts, then fine-tune contrastively on smaller labeled data. The resulting embeddings serve classification, clustering, retrieval, and reranking.
+
+\subsection{Retrieval-Augmented Generation}
+
+Contrastive embeddings make semantic search cheap, which is the basis of \emph{retrieval-augmented generation} (RAG): a language model answers a question with the help of relevant passages retrieved from a document collection.
+
+\begin{algorithm}[H]
+\caption{Retrieval-Augmented Generation}\label{alg:rag}
+\begin{algorithmic}[1]
+\Input{Document collection, embedding model $g$, language model, number of retrieved chunks $k$, user prompt $q$.}
+\Statex \textbf{Preprocessing} (once):
+\State Split each document into chunks $c_1,\dots,c_J$ and store their embeddings $g(c_1),\dots,g(c_J)$.
+\Statex \textbf{Query time}:
+\State Compute $g(q)$ and the similarities $\cos\big(g(q),g(c_j)\big)$ for all $j$.
+\State Retrieve the $k$ chunks with the largest similarity.
+\State Feed the prompt together with the retrieved chunks to the language model.
+\Output{The generated answer.}
+\end{algorithmic}
+\end{algorithm}
+
+Retrieval is $k$-nearest neighbors (\cref{alg:knn}) in embedding space with cosine similarity. With good retrieval the language model's task shifts from recalling facts to summarizing the provided context. Common extensions combine embedding search with keyword search such as BM25, or with graph structures over the documents.
+
+\section{Attention}\label{sec:attention}
+
+Embeddings so far are static. To represent a token \emph{in context} we need a network that processes sequences.
+
+\subsection{Residual and Recurrent Layers}
+
+Two building blocks precede attention. When many layers are stacked, the signal (and, by backpropagation, the gradient; \cref{sec:backprop}) can shrink to zero or blow up. A \emph{residual connection} adds the input of a layer to its output,
+\[
+y=\phi(Wx+b)+x,
+\]
+so that every layer only has to learn a correction to the identity and information can flow unchanged through the stack. For sequences $x_1,x_2,\dots$ a \emph{recurrent layer} carries a state $s_t$ and computes $(y_t,s_{t+1})=f(x_t,s_t)$; a network built from such layers is a \emph{recurrent neural network} (RNN). During training each item of the sequence is fed as input, whereas at generation time each input is the model's own previous prediction. The weakness of an RNN is that everything it knows about the past must pass through the single state $s_t$, and the computation is inherently sequential.
+
+\subsection{Scaled Dot-Product Attention}
+
+Attention lets the model look at all positions at once. At a high level it has three steps: compute a score for every position, normalize the scores with a softmax, and return the score-weighted average of the representations of all positions. To compute scores, each input vector $x_i$ is mapped by three learned matrices to a \emph{query}, a \emph{key}, and a \emph{value},
+\[
+q_i=(W^Q)\T x_i,\qquad k_i=(W^K)\T x_i,\qquad v_i=(W^V)\T x_i,
+\]
+with $W^Q,W^K\in\R^{d\times d_k}$ and $W^V\in\R^{d\times d_v}$; stacking the $x_i\T$ as rows of $X$ gives $Q=XW^Q$, as in \cref{alg:attention}. The terminology is borrowed from information retrieval: the query is compared with all keys, and the values of the best-matching keys are returned.
+
+\begin{definition}[Scaled Dot-Product Attention]\label{def:attention}
+For a query $q\in\R^{d_k}$, keys $k_1,\dots,k_m\in\R^{d_k}$, and values $v_1,\dots,v_m\in\R^{d_v}$,
+\[
+\mathrm{Attn}(q,K,V)=\sum_{i=1}^m\alpha_i(q)\,v_i,\qquad \alpha_i(q)=\frac{\exp\big(q\T k_i/\sqrt{d_k}\big)}{\sum_{j=1}^m\exp\big(q\T k_j/\sqrt{d_k}\big)}.
+\]
+Stacking queries, keys, and values as the rows of matrices $Q\in\R^{m'\times d_k}$, $K\in\R^{m\times d_k}$, $V\in\R^{m\times d_v}$,
+\[
+\mathrm{Attn}(Q,K,V)=\softmax\Big(\frac{QK\T}{\sqrt{d_k}}\Big)V,
+\]
+where the softmax is applied to each row. In \emph{self-attention}, queries, keys, and values are all computed from the same sequence.
+\end{definition}
+
+The factor $1/\sqrt{d_k}$ keeps the scores on a fixed scale: if the entries of $q$ and $k$ are independent with mean zero and variance one, then $q\T k$ has variance $d_k$, and without the rescaling the softmax would saturate for large $d_k$, with vanishing gradients. In practice several attention \emph{heads}, each with its own $W^Q,W^K,W^V$, run in parallel, so that different heads can track different relations (syntax, coreference, position). Their outputs are concatenated and mixed by one more learned matrix $W^O$.
+
+\begin{algorithm}[H]
+\caption{Multi-Head Self-Attention (Forward Pass)}\label{alg:attention}
+\begin{algorithmic}[1]
+\Input{Input sequence as rows of $X\in\R^{m\times d}$; number of heads $H$; for each head $h$, matrices $W_h^Q,W_h^K\in\R^{d\times d_k}$ and $W_h^V\in\R^{d\times d_v}$; output matrix $W^O\in\R^{Hd_v\times d}$; optional causal mask.}
+\For{$h=1,\dots,H$}
+  \State $Q_h\gets XW_h^Q$, \quad $K_h\gets XW_h^K$, \quad $V_h\gets XW_h^V$
+  \State $S_h\gets Q_hK_h\T/\sqrt{d_k}\in\R^{m\times m}$ \Comment{all pairwise scores}
+  \State \textbf{if} causal \textbf{then} set $(S_h)_{ij}\gets-\infty$ for $j>i$ \Comment{no peeking at the future}
+  \State $A_h\gets\softmax(S_h)$ row by row; \quad $O_h\gets A_hV_h\in\R^{m\times d_v}$
+\EndFor
+\Output{$\mathrm{MHA}(X)=\big[O_1,\dots,O_H\big]\,W^O\in\R^{m\times d}$.}
+\end{algorithmic}
+\end{algorithm}
+
+Row $i$ of the output is a new representation of token $i$ that mixes in information from every other token, weighted by relevance. The causal mask is used when the model must predict the next token and therefore may only attend to earlier positions. In \emph{encoder--decoder} (cross) attention, the queries come from one sequence and the keys and values from another.
+
+\begin{remark}[Connection to Local Regression and Softmax Regression]
+The output at a query $q$ is a weighted average $\sum_i\alpha_i(q)v_i$ with nonnegative weights summing to one, and the weight of position $i$ is a kernel $\exp(q\T k_i/\sqrt{d_k})$ evaluated between the query and the key. This is exactly the form of the weighted $k$-nearest-neighbor and local regression estimates of \cref{sec:local-regression}, where a prediction at $x$ is a kernel-weighted average of training responses: attention is a kernel smoother whose ``training set'' is the sequence itself and whose kernel, inputs, and outputs are all learned. Each row of attention weights is a softmax over positions, the same function that turns scores into class probabilities in \cref{sec:softmax-regression}.
+\end{remark}
+
+Self-attention compares every pair of positions, so its cost is $O(m^2d)$, quadratic in the sequence length $m$. Much current work reduces this cost or its memory traffic: sliding-window and linear attention, grouped-query attention (several query heads share one key and value head), multi-head latent attention, and FlashAttention, a GPU implementation that never stores the full $m\times m$ matrix. Attention-free sequence models such as RWKV and state space models revive the recurrent idea with better scaling.
+
+\begin{notebox}{Pros and Cons}
+Attention connects any two positions in one step, regardless of their distance, and all positions are processed in parallel, which suits GPUs far better than recurrence. The price is quadratic cost in the sequence length. Moreover, attention by itself is blind to order: permuting the input rows permutes the output rows in the same way, so position information has to be added explicitly.
+\end{notebox}
+
+\section{The Transformer}\label{sec:transformer}
+
+The transformer (Vaswani et al., 2017, ``Attention is all you need'') is a stack of identical blocks built from attention, a feed-forward network, residual connections, and normalization.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=4mm,
+  box/.style={draw, rounded corners=2pt, align=center, font=\small, minimum width=44mm, minimum height=7mm, fill=white},
+  arr/.style={-{Stealth[length=2mm]}, thick}
+]
+\node[box] (in) {token embedding $+$ positional encoding};
+\node[box, above=6mm of in] (mha) {multi-head self-attention};
+\node[box, above=of mha] (an1) {add \& normalize};
+\node[box, above=of an1] (ffn) {feed-forward network};
+\node[box, above=of ffn] (an2) {add \& normalize};
+\node[box, above=6mm of an2] (out) {linear layer $+$ softmax};
+\node[draw, dashed, rounded corners=3pt, fit=(mha)(an2), inner sep=6pt, label={[font=\small]right:$\times L$}] (blk) {};
+\draw[arr] (in) -- (mha);
+\draw[arr] (mha) -- (an1);
+\draw[arr] (an1) -- (ffn);
+\draw[arr] (ffn) -- (an2);
+\draw[arr] (an2) -- (out);
+\draw[arr] ($(in.north)+(0,3mm)$) -- ++(-28mm,0) |- (an1.west);
+\draw[arr] ($(an1.north)+(0,2mm)$) -- ++(-28mm,0) |- (an2.west);
+\end{tikzpicture}
+\caption{A transformer encoder block, repeated $L$ times. The side arrows are residual connections. A decoder block adds a causal mask to the self-attention and, in the encoder--decoder model, an extra cross-attention sub-block.}
+\label{fig:transformer-block}
+\end{figure}
+
+\begin{definition}[Transformer Block]
+For an input $X\in\R^{m\times d}$ (one row per token), an \emph{encoder block} computes
+\[
+X'=\mathrm{Norm}\big(X+\mathrm{MHA}(X)\big),\qquad Y=\mathrm{Norm}\big(X'+\mathrm{FFN}(X')\big),
+\]
+where $\mathrm{MHA}$ is \cref{alg:attention}, $\mathrm{FFN}$ is a two-layer network (\cref{sec:mlp}) applied to each row separately, and $\mathrm{Norm}$ is layer normalization (each row is standardized and then rescaled by learned parameters). A \emph{decoder block} uses masked self-attention and, when it reads an encoder, adds a third sub-block of cross-attention whose queries come from the decoder and whose keys and values come from the encoder output.
+\end{definition}
+
+The original model, built for translation, has an encoder and a decoder of six blocks each. Many later variants place the normalization before each sub-block instead of after it, which stabilizes the training of deep stacks.
+
+The input to the first block is a learned \emph{token embedding}, a lookup table like the matrix $U$ of word2vec, plus a \emph{positional encoding}. Because attention is permutation-equivariant, without positional information a transformer would treat its input as a bag of words (\cref{def:bow}). The positional encoding is either a learned vector for each position or a fixed one, such as the sinusoids of the original paper,
+\[
+\mathrm{PE}(t,2i)=\sin\big(t/10000^{2i/d}\big),\qquad \mathrm{PE}(t,2i+1)=\cos\big(t/10000^{2i/d}\big),
+\]
+which assign to each position $t$ a pattern of waves of geometrically increasing wavelengths across the embedding coordinates.
+
+\subsection{Training Language Models}
+
+The original transformer was trained on English--German translation: the final decoder state passes through a linear layer and a softmax that outputs probabilities over the next token. Pretraining on unlabeled text uses self-supervised tasks in the spirit of word2vec. \emph{Masked language modeling} (BERT, Devlin et al., 2018) replaces a random 15\% of the tokens by a special \texttt{[MASK]} token and trains an encoder to recover them. \emph{Next-token prediction} (GPT, Radford et al., 2018) trains a decoder with causal attention to maximize, over a corpus $u_1,\dots,u_n$ and a context window of length $k$,
+\[
+L_1=\sum_i\log P\big(u_i\given u_{i-k},\dots,u_{i-1};\Theta\big),
+\]
+with
+\[
+h_0=UW_e+W_p,\qquad h_\ell=\mathrm{block}(h_{\ell-1})\ \ (\ell=1,\dots,L),\qquad P(u)=\softmax\big(h_LW_e\T\big),
+\]
+where $U$ stacks the one-hot vectors of the context tokens, $W_e$ is the token embedding matrix (reused at the output), and $W_p$ is the position embedding matrix.
+
+\begin{algorithm}[H]
+\caption{Next-Token Pretraining of a Transformer Language Model}\label{alg:lm-train}
+\begin{algorithmic}[1]
+\Input{Tokenized corpus, context length $k$, decoder-only transformer with parameters $\Theta$, batch size $B$, optimizer (SGD or Adam) with learning rate $\eta$.}
+\Repeat
+  \State Sample $B$ windows $(u_1,\dots,u_{k+1})$ of consecutive tokens from the corpus.
+  \State Run the transformer with causal masking on $(u_1,\dots,u_k)$, obtaining at every position $i$ a distribution $P(\cdot\given u_{\le i})$.
+  \State $\cL\gets-\frac1{Bk}\sum_{\text{windows}}\sum_{i=1}^k\log P(u_{i+1}\given u_{\le i})$ \Comment{cross-entropy at all positions at once}
+  \State $\Theta\gets\Theta-\eta\,\nabla_\Theta\cL$ \Comment{gradients by backpropagation}
+\Until{the training budget is spent}
+\Output{Language model $P(u_{i+1}\given u_{\le i})$; text is generated by sampling one token at a time and appending it to the context.}
+\end{algorithmic}
+\end{algorithm}
+
+Thanks to the causal mask, one forward pass yields $k$ training signals, one per position, which is a major reason why transformers train efficiently compared with RNNs.
+
+\begin{remark}[Connection to Markov Models and Maximum Likelihood]
+By the chain rule, $p(u_1,\dots,u_n)=\prod_ip(u_i\given u_{<i})$, so $L_1$ is the log-likelihood (\cref{sec:mle}) of an autoregressive model that conditions on the last $k$ tokens. With a probability table in place of the network this is the $k$-th order Markov language model of \cref{ch:pgm}, whose table has $R^k(R-1)$ free entries; the transformer replaces the table by a shared network that generalizes across contexts, as word embeddings generalize across words.
+\end{remark}
+
+\subsection{Beyond Text}
+
+A \emph{vision transformer} (ViT) cuts an image into fixed-size patches, flattens and linearly projects each patch into a token embedding, adds position embeddings, and runs a standard transformer encoder; a special classification token at the start of the sequence is read out by an MLP head. CLIP (Radford et al., 2021) trains a text encoder and an image encoder jointly on $N$ image--caption pairs per batch: it forms the $N\times N$ matrix of similarities between all image and text embeddings and applies the softmax contrastive loss of \cref{sec:contrastive} along both rows and columns, treating the diagonal as positives. The result is a shared embedding space for images and text, which allows zero-shot classification by comparing an image embedding with embeddings of captions such as ``a photo of a dog''.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Representation & How it is obtained & Captures similarity of meaning & Depends on context \\
+\midrule
+Bag of words, $n$-grams & counting & no; distinct words are orthogonal & only within $n$ tokens \\
+TF-IDF & counting and reweighting & no & no \\
+Word2vec & predicting neighboring words & yes, for words & no; one vector per word \\
+Contrastive embeddings & pulling positives together, pushing negatives apart & yes, for whole texts or images & yes, through the encoder \\
+Transformer hidden states & self-supervised pretraining with attention & yes & yes, every token sees every other \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}{Limitations and what comes next}
+A transformer language model is a generative model of discrete sequences, trained by maximum likelihood one token at a time. For continuous, high-dimensional data such as images this route is awkward: there is no natural ordering of pixels, and generating hundreds of thousands of values one by one is slow. The VAE of \cref{sec:vae} generates an image in one shot but tends to produce blurry samples. \Cref{ch:diffusion} presents diffusion models, which generate by gradually removing noise from a Gaussian sample; they are trained with the same evidence lower bound as the VAE, and their denoising networks contain the self-attention layers of this chapter.
+\end{notebox}

@@ -1,0 +1,652 @@
+{
+  "data": {
+    "n_train": 60000,
+    "n_test": 10000,
+    "n_validation": 10000,
+    "binarize_rule": "pixel on iff uint8 intensity >= 128 (x/255 > 0.5)",
+    "frac_on_train": 0.2058
+  },
+  "bernoulli_test": {
+    "mle": {
+      "alpha_minus_one": 0.0,
+      "accuracy": 0.9897,
+      "mean_log_p_c_given_x": "-inf",
+      "mean_log_p_x": "-inf",
+      "frac_undefined_posterior": 0.0025,
+      "frac_true_class_impossible": 0.0025,
+      "n_theta_zero_or_one": 10160,
+      "n_theta_zero": 10095,
+      "n_theta_one": 65,
+      "n_test_undefined": 25,
+      "n_test_true_class_impossible": 25,
+      "naive_0log0_frac_nan_rows": 1.0,
+      "naive_0log0_accuracy": 0.0333,
+      "test_frac_class_0": 0.0333
+    },
+    "laplace": {
+      "alpha_minus_one": 1.0,
+      "accuracy": 0.9895,
+      "mean_log_p_c_given_x": -0.2431,
+      "mean_log_p_x": -152.5982,
+      "frac_undefined_posterior": 0.0,
+      "frac_true_class_impossible": 0.0,
+      "n_theta_zero_or_one": 0
+    },
+    "selected_for_classification": {
+      "alpha_minus_one": 1e-08,
+      "accuracy": 0.9934,
+      "mean_log_p_c_given_x": -0.1438,
+      "mean_log_p_x": -152.6467,
+      "frac_undefined_posterior": 0.0,
+      "frac_true_class_impossible": 0.0,
+      "n_theta_zero_or_one": 0
+    },
+    "selected_for_generation": {
+      "alpha_minus_one": 0.1,
+      "accuracy": 0.9903,
+      "mean_log_p_c_given_x": -0.2095,
+      "mean_log_p_x": -152.4928,
+      "frac_undefined_posterior": 0.0,
+      "frac_true_class_impossible": 0.0,
+      "n_theta_zero_or_one": 0
+    }
+  },
+  "selection": {
+    "alpha_minus_one_generation": 0.1,
+    "alpha_minus_one_classification": 1e-08,
+    "eps": 0.001
+  },
+  "gaussian_test": {
+    "selected": {
+      "eps": 0.001,
+      "accuracy": 0.9986,
+      "mean_log_p_c_given_x": -0.2513
+    },
+    "reference_small_eps": {
+      "eps": 1e-05,
+      "accuracy": 0.995,
+      "mean_log_p_c_given_x": -27.8952
+    },
+    "min_validation_cross_entropy": {
+      "eps": 1.0,
+      "accuracy": 0.9632,
+      "mean_log_p_c_given_x": -0.149
+    },
+    "frac_zero_variance": 0.4026
+  },
+  "samples": {
+    "n_generated": 10000,
+    "isolated_on_pixels_test": 1.86e-06,
+    "isolated_on_pixels_samples": 0.0525,
+    "on_rate_test": 0.2058,
+    "on_rate_samples": 0.2057
+  },
+  "imputation": {
+    "paired_random_minus_lattice": {
+      "36 px": {
+        "class_accuracy": {
+          "diff": 0.0162,
+          "se": 0.0051
+        },
+        "excess_ce": {
+          "diff": -0.0049,
+          "se": 0.0007
+        }
+      },
+      "49 px": {
+        "class_accuracy": {
+          "diff": -0.0554,
+          "se": 0.0036
+        },
+        "excess_ce": {
+          "diff": 0.0076,
+          "se": 0.0004
+        }
+      },
+      "64 px": {
+        "class_accuracy": {
+          "diff": -0.0162,
+          "se": 0.003
+        },
+        "excess_ce": {
+          "diff": 0.0034,
+          "se": 0.0003
+        }
+      },
+      "81 px": {
+        "class_accuracy": {
+          "diff": -0.0211,
+          "se": 0.0023
+        },
+        "excess_ce": {
+          "diff": 0.0021,
+          "se": 0.0002
+        }
+      },
+      "100 px": {
+        "class_accuracy": {
+          "diff": -0.0115,
+          "se": 0.002
+        },
+        "excess_ce": {
+          "diff": 0.0013,
+          "se": 0.0002
+        }
+      },
+      "121 px": {
+        "class_accuracy": {
+          "diff": -0.0099,
+          "se": 0.0017
+        },
+        "excess_ce": {
+          "diff": 0.0009,
+          "se": 0.0001
+        }
+      },
+      "144 px": {
+        "class_accuracy": {
+          "diff": -0.0091,
+          "se": 0.0016
+        },
+        "excess_ce": {
+          "diff": 0.0006,
+          "se": 0.0001
+        }
+      },
+      "169 px": {
+        "class_accuracy": {
+          "diff": -0.0076,
+          "se": 0.0012
+        },
+        "excess_ce": {
+          "diff": 0.0005,
+          "se": 0.0001
+        }
+      },
+      "196 px": {
+        "class_accuracy": {
+          "diff": -0.0065,
+          "se": 0.0012
+        },
+        "excess_ce": {
+          "diff": 0.0004,
+          "se": 0.0001
+        }
+      },
+      "225 px": {
+        "class_accuracy": {
+          "diff": -0.0054,
+          "se": 0.0011
+        },
+        "excess_ce": {
+          "diff": 0.0004,
+          "se": 0.0001
+        }
+      },
+      "256 px": {
+        "class_accuracy": {
+          "diff": -0.0041,
+          "se": 0.0011
+        },
+        "excess_ce": {
+          "diff": 0.0003,
+          "se": 0.0001
+        }
+      },
+      "289 px": {
+        "class_accuracy": {
+          "diff": -0.0002,
+          "se": 0.0011
+        },
+        "excess_ce": {
+          "diff": 0.0001,
+          "se": 0.0001
+        }
+      },
+      "324 px": {
+        "class_accuracy": {
+          "diff": -0.0024,
+          "se": 0.001
+        },
+        "excess_ce": {
+          "diff": 0.0002,
+          "se": 0.0001
+        }
+      },
+      "361 px": {
+        "class_accuracy": {
+          "diff": -0.0031,
+          "se": 0.001
+        },
+        "excess_ce": {
+          "diff": 0.0001,
+          "se": 0.0001
+        }
+      },
+      "400 px": {
+        "class_accuracy": {
+          "diff": -0.0012,
+          "se": 0.0008
+        },
+        "excess_ce": {
+          "diff": 0.0001,
+          "se": 0.0001
+        }
+      },
+      "441 px": {
+        "class_accuracy": {
+          "diff": 0.0014,
+          "se": 0.0009
+        },
+        "excess_ce": {
+          "diff": -0.0,
+          "se": 0.0001
+        }
+      },
+      "484 px": {
+        "class_accuracy": {
+          "diff": 0.0,
+          "se": 0.0007
+        },
+        "excess_ce": {
+          "diff": -0.0001,
+          "se": 0.0001
+        }
+      },
+      "529 px": {
+        "class_accuracy": {
+          "diff": -0.0017,
+          "se": 0.0008
+        },
+        "excess_ce": {
+          "diff": 0.0001,
+          "se": 0.0001
+        }
+      },
+      "576 px": {
+        "class_accuracy": {
+          "diff": 0.0027,
+          "se": 0.0008
+        },
+        "excess_ce": {
+          "diff": -0.0002,
+          "se": 0.0001
+        }
+      },
+      "625 px": {
+        "class_accuracy": {
+          "diff": -0.0013,
+          "se": 0.0006
+        },
+        "excess_ce": {
+          "diff": 0.0,
+          "se": 0.0001
+        }
+      },
+      "676 px": {
+        "class_accuracy": {
+          "diff": -0.002,
+          "se": 0.0005
+        },
+        "excess_ce": {
+          "diff": 0.0003,
+          "se": 0.0001
+        }
+      }
+    },
+    "table": [
+      {
+        "mask": "random",
+        "n_observed": 36,
+        "frac_observed": 0.0459,
+        "class_accuracy": 0.818,
+        "hidden_ce": 0.2115,
+        "hidden_ce_class_known": 0.1905,
+        "hidden_ce_prior": 0.3498,
+        "excess_ce": 0.021,
+        "hidden_ce_drawn_class": 0.2633,
+        "hidden_pixel_error": 0.0983,
+        "hidden_joint_ll_per_pixel": -0.191
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 36,
+        "frac_observed": 0.0459,
+        "class_accuracy": 0.8018,
+        "hidden_ce": 0.216,
+        "hidden_ce_class_known": 0.1902,
+        "hidden_ce_prior": 0.3507,
+        "excess_ce": 0.0258,
+        "hidden_ce_drawn_class": 0.2838,
+        "hidden_pixel_error": 0.1019,
+        "hidden_joint_ll_per_pixel": -0.1907
+      },
+      {
+        "mask": "raster",
+        "n_observed": 36,
+        "frac_observed": 0.0459,
+        "class_accuracy": 0.8392,
+        "hidden_ce": 0.2078,
+        "hidden_ce_class_known": 0.1901,
+        "hidden_ce_prior": 0.3494,
+        "excess_ce": 0.0176,
+        "hidden_ce_drawn_class": 0.2472,
+        "hidden_pixel_error": 0.0969,
+        "hidden_joint_ll_per_pixel": -0.1905
+      },
+      {
+        "mask": "random",
+        "n_observed": 49,
+        "frac_observed": 0.0625,
+        "class_accuracy": 0.8883,
+        "hidden_ce": 0.2004,
+        "hidden_ce_class_known": 0.1905,
+        "hidden_ce_prior": 0.3497,
+        "excess_ce": 0.0099,
+        "hidden_ce_drawn_class": 0.2242,
+        "hidden_pixel_error": 0.0939,
+        "hidden_joint_ll_per_pixel": -0.1907
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 49,
+        "frac_observed": 0.0625,
+        "class_accuracy": 0.9437,
+        "hidden_ce": 0.1937,
+        "hidden_ce_class_known": 0.1914,
+        "hidden_ce_prior": 0.3511,
+        "excess_ce": 0.0023,
+        "hidden_ce_drawn_class": 0.2036,
+        "hidden_pixel_error": 0.0915,
+        "hidden_joint_ll_per_pixel": -0.1913
+      },
+      {
+        "mask": "raster",
+        "n_observed": 49,
+        "frac_observed": 0.0625,
+        "class_accuracy": 0.9228,
+        "hidden_ce": 0.1934,
+        "hidden_ce_class_known": 0.19,
+        "hidden_ce_prior": 0.3487,
+        "excess_ce": 0.0034,
+        "hidden_ce_drawn_class": 0.2052,
+        "hidden_pixel_error": 0.0909,
+        "hidden_joint_ll_per_pixel": -0.1901
+      },
+      {
+        "mask": "random",
+        "n_observed": 64,
+        "frac_observed": 0.0816,
+        "class_accuracy": 0.9262,
+        "hidden_ce": 0.1955,
+        "hidden_ce_class_known": 0.1906,
+        "hidden_ce_prior": 0.3498,
+        "excess_ce": 0.0049,
+        "hidden_ce_drawn_class": 0.2082,
+        "hidden_pixel_error": 0.092,
+        "hidden_joint_ll_per_pixel": -0.1906
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 64,
+        "frac_observed": 0.0816,
+        "class_accuracy": 0.9424,
+        "hidden_ce": 0.1924,
+        "hidden_ce_class_known": 0.1908,
+        "hidden_ce_prior": 0.3503,
+        "excess_ce": 0.0015,
+        "hidden_ce_drawn_class": 0.1994,
+        "hidden_pixel_error": 0.0908,
+        "hidden_joint_ll_per_pixel": -0.1908
+      },
+      {
+        "mask": "raster",
+        "n_observed": 64,
+        "frac_observed": 0.0816,
+        "class_accuracy": 0.9618,
+        "hidden_ce": 0.1918,
+        "hidden_ce_class_known": 0.1904,
+        "hidden_ce_prior": 0.3492,
+        "excess_ce": 0.0014,
+        "hidden_ce_drawn_class": 0.1964,
+        "hidden_pixel_error": 0.0906,
+        "hidden_joint_ll_per_pixel": -0.1903
+      },
+      {
+        "mask": "random",
+        "n_observed": 100,
+        "frac_observed": 0.1276,
+        "class_accuracy": 0.9629,
+        "hidden_ce": 0.1917,
+        "hidden_ce_class_known": 0.1905,
+        "hidden_ce_prior": 0.3499,
+        "excess_ce": 0.0012,
+        "hidden_ce_drawn_class": 0.1947,
+        "hidden_pixel_error": 0.0907,
+        "hidden_joint_ll_per_pixel": -0.1904
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 100,
+        "frac_observed": 0.1276,
+        "class_accuracy": 0.9744,
+        "hidden_ce": 0.1902,
+        "hidden_ce_class_known": 0.1904,
+        "hidden_ce_prior": 0.3485,
+        "excess_ce": -0.0001,
+        "hidden_ce_drawn_class": 0.1919,
+        "hidden_pixel_error": 0.0901,
+        "hidden_joint_ll_per_pixel": -0.1902
+      },
+      {
+        "mask": "raster",
+        "n_observed": 100,
+        "frac_observed": 0.1276,
+        "class_accuracy": 0.9763,
+        "hidden_ce": 0.1908,
+        "hidden_ce_class_known": 0.1906,
+        "hidden_ce_prior": 0.3495,
+        "excess_ce": 0.0002,
+        "hidden_ce_drawn_class": 0.1925,
+        "hidden_pixel_error": 0.0908,
+        "hidden_joint_ll_per_pixel": -0.1904
+      },
+      {
+        "mask": "random",
+        "n_observed": 144,
+        "frac_observed": 0.1837,
+        "class_accuracy": 0.9755,
+        "hidden_ce": 0.1909,
+        "hidden_ce_class_known": 0.1905,
+        "hidden_ce_prior": 0.3497,
+        "excess_ce": 0.0003,
+        "hidden_ce_drawn_class": 0.1923,
+        "hidden_pixel_error": 0.0905,
+        "hidden_joint_ll_per_pixel": -0.1904
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 144,
+        "frac_observed": 0.1837,
+        "class_accuracy": 0.9846,
+        "hidden_ce": 0.1878,
+        "hidden_ce_class_known": 0.1881,
+        "hidden_ce_prior": 0.3479,
+        "excess_ce": -0.0003,
+        "hidden_ce_drawn_class": 0.1886,
+        "hidden_pixel_error": 0.0891,
+        "hidden_joint_ll_per_pixel": -0.1878
+      },
+      {
+        "mask": "raster",
+        "n_observed": 144,
+        "frac_observed": 0.1837,
+        "class_accuracy": 0.9654,
+        "hidden_ce": 0.1913,
+        "hidden_ce_class_known": 0.19,
+        "hidden_ce_prior": 0.3499,
+        "excess_ce": 0.0013,
+        "hidden_ce_drawn_class": 0.193,
+        "hidden_pixel_error": 0.0903,
+        "hidden_joint_ll_per_pixel": -0.19
+      },
+      {
+        "mask": "random",
+        "n_observed": 196,
+        "frac_observed": 0.25,
+        "class_accuracy": 0.9799,
+        "hidden_ce": 0.1905,
+        "hidden_ce_class_known": 0.1906,
+        "hidden_ce_prior": 0.3499,
+        "excess_ce": -0.0001,
+        "hidden_ce_drawn_class": 0.1913,
+        "hidden_pixel_error": 0.0904,
+        "hidden_joint_ll_per_pixel": -0.1904
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 196,
+        "frac_observed": 0.25,
+        "class_accuracy": 0.9864,
+        "hidden_ce": 0.19,
+        "hidden_ce_class_known": 0.1905,
+        "hidden_ce_prior": 0.3496,
+        "excess_ce": -0.0005,
+        "hidden_ce_drawn_class": 0.1905,
+        "hidden_pixel_error": 0.0905,
+        "hidden_joint_ll_per_pixel": -0.1903
+      },
+      {
+        "mask": "raster",
+        "n_observed": 196,
+        "frac_observed": 0.25,
+        "class_accuracy": 0.9603,
+        "hidden_ce": 0.1903,
+        "hidden_ce_class_known": 0.1885,
+        "hidden_ce_prior": 0.3467,
+        "excess_ce": 0.0018,
+        "hidden_ce_drawn_class": 0.1917,
+        "hidden_pixel_error": 0.0897,
+        "hidden_joint_ll_per_pixel": -0.1886
+      },
+      {
+        "mask": "random",
+        "n_observed": 225,
+        "frac_observed": 0.287,
+        "class_accuracy": 0.9842,
+        "hidden_ce": 0.1906,
+        "hidden_ce_class_known": 0.1906,
+        "hidden_ce_prior": 0.35,
+        "excess_ce": -0.0,
+        "hidden_ce_drawn_class": 0.1912,
+        "hidden_pixel_error": 0.0905,
+        "hidden_joint_ll_per_pixel": -0.1905
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 225,
+        "frac_observed": 0.287,
+        "class_accuracy": 0.9896,
+        "hidden_ce": 0.1934,
+        "hidden_ce_class_known": 0.1939,
+        "hidden_ce_prior": 0.3558,
+        "excess_ce": -0.0004,
+        "hidden_ce_drawn_class": 0.1938,
+        "hidden_pixel_error": 0.092,
+        "hidden_joint_ll_per_pixel": -0.1936
+      },
+      {
+        "mask": "raster",
+        "n_observed": 225,
+        "frac_observed": 0.287,
+        "class_accuracy": 0.9838,
+        "hidden_ce": 0.189,
+        "hidden_ce_class_known": 0.189,
+        "hidden_ce_prior": 0.3494,
+        "excess_ce": -0.0,
+        "hidden_ce_drawn_class": 0.1897,
+        "hidden_pixel_error": 0.0895,
+        "hidden_joint_ll_per_pixel": -0.1888
+      },
+      {
+        "mask": "random",
+        "n_observed": 400,
+        "frac_observed": 0.5102,
+        "class_accuracy": 0.9884,
+        "hidden_ce": 0.1904,
+        "hidden_ce_class_known": 0.1905,
+        "hidden_ce_prior": 0.3498,
+        "excess_ce": -0.0002,
+        "hidden_ce_drawn_class": 0.1905,
+        "hidden_pixel_error": 0.0905,
+        "hidden_joint_ll_per_pixel": -0.1904
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 400,
+        "frac_observed": 0.5102,
+        "class_accuracy": 0.9896,
+        "hidden_ce": 0.1916,
+        "hidden_ce_class_known": 0.1919,
+        "hidden_ce_prior": 0.3478,
+        "excess_ce": -0.0003,
+        "hidden_ce_drawn_class": 0.1918,
+        "hidden_pixel_error": 0.0925,
+        "hidden_joint_ll_per_pixel": -0.1916
+      },
+      {
+        "mask": "raster",
+        "n_observed": 400,
+        "frac_observed": 0.5102,
+        "class_accuracy": 0.9899,
+        "hidden_ce": 0.1895,
+        "hidden_ce_class_known": 0.1898,
+        "hidden_ce_prior": 0.3492,
+        "excess_ce": -0.0003,
+        "hidden_ce_drawn_class": 0.1897,
+        "hidden_pixel_error": 0.0903,
+        "hidden_joint_ll_per_pixel": -0.1896
+      },
+      {
+        "mask": "random",
+        "n_observed": 676,
+        "frac_observed": 0.8622,
+        "class_accuracy": 0.9899,
+        "hidden_ce": 0.1901,
+        "hidden_ce_class_known": 0.1904,
+        "hidden_ce_prior": 0.3492,
+        "excess_ce": -0.0003,
+        "hidden_ce_drawn_class": 0.1902,
+        "hidden_pixel_error": 0.0906,
+        "hidden_joint_ll_per_pixel": -0.1901
+      },
+      {
+        "mask": "lattice",
+        "n_observed": 676,
+        "frac_observed": 0.8622,
+        "class_accuracy": 0.9919,
+        "hidden_ce": 0.2419,
+        "hidden_ce_class_known": 0.2425,
+        "hidden_ce_prior": 0.4201,
+        "excess_ce": -0.0006,
+        "hidden_ce_drawn_class": 0.242,
+        "hidden_pixel_error": 0.1178,
+        "hidden_joint_ll_per_pixel": -0.2418
+      },
+      {
+        "mask": "raster",
+        "n_observed": 676,
+        "frac_observed": 0.8622,
+        "class_accuracy": 0.988,
+        "hidden_ce": 0.1961,
+        "hidden_ce_class_known": 0.1958,
+        "hidden_ce_prior": 0.3643,
+        "excess_ce": 0.0003,
+        "hidden_ce_drawn_class": 0.1963,
+        "hidden_pixel_error": 0.0933,
+        "hidden_joint_ll_per_pixel": -0.196
+      }
+    ]
+  },
+  "runtime_seconds": 53.9
+}

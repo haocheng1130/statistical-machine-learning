@@ -1,0 +1,252 @@
+\chapter{Classification: Logistic Regression and Discriminant Analysis}\label{ch:classification}
+
+When the response is qualitative, the target of learning is no longer a conditional mean but the Bayes classifier of \cref{def:bayes-classifier}, which assigns each input to its most probable class. Every classifier in this chapter estimates the class probabilities $p_k(x)=\Prob(Y=k\given X=x)$ and then plugs them into the Bayes rule. There are two ways to do this. A \emph{discriminative} method models $p_k(x)$ directly; logistic regression (\cref{sec:logistic,sec:softmax-regression}) is the basic example, and it is fitted by the maximum likelihood principle of \cref{sec:mle} and the gradient methods of \cref{ch:optimization}. A \emph{generative} method models how the inputs are distributed within each class and inverts this with Bayes' theorem; linear and quadratic discriminant analysis and naive Bayes (\cref{sec:lda,sec:qda,sec:naive-bayes}) are of this type. \Cref{sec:classifier-eval} explains how to judge a classifier beyond its error rate, and \cref{sec:lr-vs-lda} compares the two routes.
+
+\section{The Classification Problem}\label{sec:classification-setup}
+
+The response $Y$ takes values in an unordered set $\cC$ of $K$ classes, for instance $\{\text{spam},\text{non-spam}\}$ ($K=2$, binary classification) or the ten digits ($K=10$, multi-class classification). Given training data $\cD=\{(x_i,y_i)\}_{i=1}^n$ with $x_i\in\R^p$ and $y_i\in\cC$, we want a classifier $\hatf\colon\R^p\to\cC$ that predicts well, and we would like to understand the role each feature plays in it. A classifier is judged by its expected error rate under the 0-1 loss,
+\[
+\Err(\hatf)=\E\big[\ind\{Y\ne\hatf(X)\}\big]=\Prob\big(Y\ne\hatf(X)\big),
+\]
+where $(X,Y)$ is a new observation independent of the training data.
+
+By \cref{sec:decision-theory}, the minimizer of this risk is the Bayes classifier $f^*(x)=\argmax_kp_k(x)$, its conditional error at $x$ is $1-\max_kp_k(x)$, and the Bayes error is the average $\E[1-\max_kp_k(X)]$, which is typically positive. For example, if $K=3$ and $p_1(x_0),p_2(x_0),p_3(x_0)=0.5,0.3,0.2$, the Bayes classifier predicts class~1 and errs with probability $0.5$ at $x_0$, while guessing a class uniformly at random errs with probability $2/3$. In the binary case $\cC=\{0,1\}$ the Bayes classifier predicts $1$ exactly when
+\[
+p(x):=\Prob(Y=1\given X=x)=\E[Y\given X=x]\ge\tfrac12,
+\]
+so learning the Bayes rule amounts to estimating the function $p(x)$.
+
+Since $p(x)$ is a conditional mean, one could estimate it by least squares (\cref{sec:ols}) on the 0/1 responses. This is sometimes done in practice, but the fitted values $\hat\beta_0+\hat\beta\T x$ are not confined to $[0,1]$ and cannot be read as probabilities; with $K>2$ classes, coding the labels as numbers would moreover impose an order and spacing that the classes do not have. The methods of this chapter respect the structure of the problem.
+
+Classifiers are compared through the training error rate $\frac1n\sum_i\ind\{y_i\ne\hatf(x_i)\}$, which is optimistic, and through estimates of the test error from a validation set or cross-validation (\cref{sec:cv}), which apply to the 0-1 loss without change. Besides the parametric methods of this chapter, there are nonparametric classifiers: $k$-nearest neighbors (\cref{alg:knn}), support vector machines (\cref{ch:svm}), and classification trees (\cref{ch:trees}).
+
+\section{Logistic Regression}\label{sec:logistic}
+
+\begin{definition}[Logistic Regression]
+The \emph{logistic function} is $\sigma(t)=e^t/(1+e^t)=1/(1+e^{-t})$. The \emph{logistic regression model} for a binary response $Y\in\{0,1\}$ postulates
+\[
+p(x;\beta)=\Prob(Y=1\given X=x)=\sigma(\beta_0+\beta_1x_1+\dots+\beta_px_p).
+\]
+Equivalently, the \emph{log-odds} or \emph{logit} is linear in $x$:
+\[
+\log\frac{p(x;\beta)}{1-p(x;\beta)}=\beta_0+\beta_1x_1+\dots+\beta_px_p.
+\]
+\end{definition}
+
+The odds $p/(1-p)$ range over $(0,\infty)$ and the log-odds over $\R$, so a linear predictor is natural on the logit scale, while $p(x;\beta)$ itself always lies in $[0,1]$. The model is linear neither in $x$ nor in $\beta$ on the probability scale, but the coefficients keep the interpretation of linear regression one level up: $\beta_j$ is the change in the log-odds for a unit increase in $x_j$, the other features held fixed. Given estimates $\hat\beta$, the model predicts at three levels: the logit $\hat\beta_0+\hat\beta\T x$, the probability $\hat p(x)=\sigma(\hat\beta_0+\hat\beta\T x)$, and the label $\hat y=\ind\{\hat p(x)\ge\frac12\}$. The decision boundary $\{x:\hat\beta_0+\hat\beta\T x=0\}$ is a hyperplane.
+
+\subsection{Maximum Likelihood}
+
+From here on we absorb the intercept by prepending a $1$ to each $x_i$, so that $\beta\in\R^{p+1}$ and $p(x_i;\beta)=\sigma(x_i\T\beta)$. The responses are modeled as independent, $y_i\sim\mathrm{Bernoulli}(p(x_i;\beta))$, and $\beta$ is estimated by maximizing the conditional likelihood of $y_1,\dots,y_n$ given the inputs (\cref{sec:mle}):
+\[
+\ell(\beta)=\sum_{i=1}^n\Big[y_i\log p(x_i;\beta)+(1-y_i)\log\big(1-p(x_i;\beta)\big)\Big]=\sum_{i=1}^n\Big[y_i\,x_i\T\beta-\log\big(1+e^{x_i\T\beta}\big)\Big].
+\]
+The second form follows from $\log\frac{p}{1-p}=x_i\T\beta$ and $\log(1-p)=-\log(1+e^{x_i\T\beta})$. The negative log-likelihood $-\ell$ is also called the \emph{cross-entropy} or \emph{logistic loss}.
+
+\begin{proposition}[Gradient and Concavity]\label{prop:logistic-grad}
+With $p_i=\sigma(x_i\T\beta)$, $p=(p_1,\dots,p_n)\T$, and $W=\diag\big(p_i(1-p_i)\big)$,
+\[
+\nabla\ell(\beta)=\sum_{i=1}^n(y_i-p_i)\,x_i=X\T(y-p),\qquad\nabla^2\ell(\beta)=-X\T WX.
+\]
+The Hessian is negative semidefinite, so $\ell$ is concave and $-\ell$ is convex.
+\end{proposition}
+
+The gradient has an appealing form: each observation pulls $\beta$ in the direction of its input, weighted by the residual ``observed minus predicted''. The same form reappears for the multinomial model below and for the output layer of neural networks. Setting the gradient to zero gives equations that have no closed-form solution, so the maximizer is found iteratively. Because $-\ell$ is convex (\cref{sec:convexity}), gradient descent with a suitable step size converges to a global minimizer.
+
+\begin{algorithm}[H]
+\caption{Logistic Regression by Gradient Ascent}\label{alg:logistic-fit}
+\begin{algorithmic}[1]
+\Input{Data $\{(x_i,y_i)\}_{i=1}^n$ with $y_i\in\{0,1\}$ and $x_i$ including a leading $1$; learning rate $\eta$; tolerance $\epsilon$; maximum number of iterations $M$.}
+\Init{$\beta^{(0)}\gets0$.}
+\For{$k=0,1,\dots,M-1$}
+  \State $p_i\gets\sigma(x_i\T\beta^{(k)})$ for $i=1,\dots,n$ \Comment{current fitted probabilities}
+  \State $g\gets\frac1n\sum_{i=1}^n(y_i-p_i)\,x_i$ \Comment{$\frac1n\nabla\ell(\beta^{(k)})$}
+  \State $\beta^{(k+1)}\gets\beta^{(k)}+\eta\,g$ \Comment{ascent on $\ell$ = descent on $-\ell$}
+  \If{$\norm{g}\le\epsilon$} \textbf{break} \EndIf
+\EndFor
+\Output{$\hat\beta$; probabilities $\hat p(x)=\sigma(x\T\hat\beta)$; classifier $\hat y(x)=\ind\{\hat p(x)\ge t\}$ with threshold $t=\frac12$ by default.}
+\end{algorithmic}
+\end{algorithm}
+
+This is \cref{alg:gd} applied to $-\ell/n$; dividing by $n$ only rescales the learning rate, which must be tuned as discussed in \cref{sec:gd}. For large $n$ the full sum in line~3 is replaced by a minibatch, as in \cref{alg:sgd}. Other stopping criteria, such as a small change in $\ell$ between iterations, work equally well.
+
+\begin{remark}[Separable Data]\label{rem:logistic-separable}
+If the two classes can be separated perfectly by a hyperplane, scaling a separating $\beta$ up increases $\ell$ toward its supremum $0$, so no finite maximizer exists and the iterates of \cref{alg:logistic-fit} diverge. This is the precise version of the remark in the lectures that the estimates are ``surprisingly unstable'' when the classes are well separated. A ridge penalty $\frac\lambda2\norm{\beta}^2$ on $-\ell$ (\cref{sec:ridge}) restores a unique finite solution.
+\end{remark}
+
+\subsection{Inference}
+
+When the model is correct, the MLE is consistent, asymptotically normal, $\sqrt n(\hat\beta-\beta)\to\cN(0,\Sigma)$, and asymptotically efficient: no other asymptotically unbiased estimator has a smaller asymptotic covariance. The \emph{$z$-statistic} $\hat\beta_j/\mathrm{SE}(\hat\beta_j)$, with the standard error read off the estimated asymptotic covariance, plays the role of the $t$-statistic of linear regression and gives a $p$-value for $H_0\colon\beta_j=0$. The interpretation of a coefficient depends on the other features in the model, exactly as in linear regression: in the Default data, being a student raises the estimated probability of default when student status is the only predictor, but its coefficient becomes negative once the credit card balance is included, because students tend to carry larger balances.
+
+\begin{notebox}{Pros and Cons}
+Logistic regression produces calibrated probabilities, interpretable coefficients with standard errors, and a convex fitting problem with a unique solution in non-separable cases. It makes no assumption about the distribution of $X$. On the other hand, its decision boundary is linear in the features, it is unstable when the classes are (nearly) separable, and with small $n$ it can be less efficient than a generative model whose assumptions hold.
+\end{notebox}
+
+\section{Evaluating a Classifier}\label{sec:classifier-eval}
+
+The overall error rate treats all mistakes alike, which is often inappropriate. In binary classification, call class $1$ ``positive'' and class $0$ ``negative''. The \emph{confusion matrix} counts the four combinations of predicted and true labels.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & True $Y=0$ (negative) & True $Y=1$ (positive) \\
+\midrule
+Predicted $\hat Y=0$ & true negatives (TN) & false negatives (FN) \\
+Predicted $\hat Y=1$ & false positives (FP) & true positives (TP) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{definition}[Error Rates]
+The \emph{false positive rate} is $\mathrm{FPR}=\mathrm{FP}/(\mathrm{FP}+\mathrm{TN})$, the fraction of negatives classified as positive, and the \emph{false negative rate} is $\mathrm{FNR}=\mathrm{FN}/(\mathrm{FN}+\mathrm{TP})$, the fraction of positives classified as negative. The \emph{true positive rate} or \emph{sensitivity} is $\mathrm{TPR}=1-\mathrm{FNR}$, the \emph{specificity} is $1-\mathrm{FPR}$, and the \emph{precision} is $\mathrm{TP}/(\mathrm{TP}+\mathrm{FP})$.
+\end{definition}
+
+For the Default data, a linear classifier with threshold $\frac12$ (the lecture attributes these figures to logistic regression; the ISLR textbook reports them for LDA) has a training error of only $2.75\%$, yet it misses $75.7\%$ of the customers who actually default, while its false positive rate is $0.2\%$. For a credit card company the missed defaults are the expensive errors. Lowering the threshold, predicting ``default'' whenever $\hat p(x)\ge t$ for some $t<\frac12$, trades a lower FNR for a higher FPR; $t=0$ classifies everyone as positive and $t=1$ essentially everyone as negative.
+
+\begin{remark}[Thresholds from Decision Theory]\label{rem:threshold-cost}
+The threshold $\frac12$ is optimal for the 0-1 loss. If a false negative costs $c$ times as much as a false positive, the expected loss of predicting $1$ at $x$ is $1-p(x)$ and that of predicting $0$ is $c\,p(x)$, so the Bayes rule of \cref{sec:decision-theory} predicts $1$ when $p(x)\ge1/(1+c)$. Choosing the threshold is therefore the same as choosing the loss.
+\end{remark}
+
+The \emph{ROC curve} plots $\mathrm{TPR}(t)$ against $\mathrm{FPR}(t)$ as the threshold $t$ runs from $1$ down to $0$; it starts at $(0,0)$ and ends at $(1,1)$. The \emph{area under the curve} (AUC) summarizes performance over all thresholds: an ideal classifier has $\mathrm{AUC}=1$, and a classifier that ignores $x$ and predicts $1$ with probability $q$ has $\mathrm{FPR}=\mathrm{TPR}=q$, so its ROC curve is the diagonal and its AUC is $\frac12$. The ROC curve depends only on the ranking of the scores $\hat p(x)$, so it also applies to classifiers that output scores rather than probabilities, such as the SVM of \cref{ch:svm}.
+
+\section{Multinomial Logistic Regression}\label{sec:softmax-regression}
+
+For $K>2$ classes $\{1,\dots,K\}$, choose a baseline class, here $K$, and model the log-odds of every other class against it linearly:
+\[
+\log\frac{p_k(x)}{p_K(x)}=x\T\beta^{(k)},\qquad k=1,\dots,K-1,
+\]
+with $x$ again including a leading $1$. Solving for the probabilities, and setting $\beta^{(K)}=0$,
+\begin{equation}\label{eq:softmax-model}
+p_k(x)=\frac{\exp\big(x\T\beta^{(k)}\big)}{\sum_{l=1}^K\exp\big(x\T\beta^{(l)}\big)}=\softmax\big(x\T\beta^{(1)},\dots,x\T\beta^{(K)}\big)_k.
+\end{equation}
+The choice of baseline is arbitrary and does not change the fitted probabilities. For $K=2$ the model reduces to binary logistic regression.
+
+A naive way to fit the model would run $K-1$ separate binary logistic regressions, the $k$-th on the observations in classes $k$ and $K$ only. This ignores the data from the other classes, although the events $\{y_i=k\}$ for different $k$ are dependent. The MLE pools all observations. The log-likelihood is
+\[
+\ell\big(\beta^{(1)},\dots,\beta^{(K-1)}\big)=\sum_{i=1}^n\sum_{k=1}^K\ind\{y_i=k\}\log p_k(x_i),
+\]
+and its gradient has the same ``observed minus predicted'' form as in \cref{prop:logistic-grad}:
+\[
+\frac{\partial\ell}{\partial\beta^{(k)}}=\sum_{i=1}^n\big(\ind\{y_i=k\}-p_k(x_i)\big)\,x_i,\qquad k=1,\dots,K-1.
+\]
+\Cref{alg:logistic-fit} carries over verbatim: compute all $p_k(x_i)$ from \eqref{eq:softmax-model}, and update every $\beta^{(k)}$ with its gradient. Each update now uses the data from all classes. The negative log-likelihood is again convex, so gradient descent finds the MLE. The fitted classifier predicts $\argmax_k\hat p_k(x)$, whose decision boundaries are pieces of hyperplanes.
+
+\begin{remark}[A Sign Error in Tutorial 7]
+For the multinomial logit model of the second midterm, the tutorial writes the update as $\hat\beta_1^{(t+1)}=\hat\beta_1^{(t)}-\alpha\sum_k\big[n_k-np_k\big]x_k$. The sum is the gradient of the log-likelihood, which is to be maximized, so the correct update has a plus sign (equivalently, a minus sign in front of the gradient of $-\ell$).
+\end{remark}
+
+\begin{remark}[Connection to Neural Networks and Attention]
+The softmax in \eqref{eq:softmax-model} turns $K$ real scores into a probability vector. It is the output layer of every neural network classifier (\cref{sec:mlp}), where the linear scores $x\T\beta^{(k)}$ are computed from learned features instead of raw inputs, and it produces the attention weights of the transformer (\cref{sec:attention}).
+\end{remark}
+
+\section{Generative Classifiers and Discriminant Analysis}\label{sec:generative-classifiers}
+
+Logistic regression models $p_k(x)$ directly. Discriminant analysis instead models the \emph{class-conditional} distributions. Let $\pi_k=\Prob(Y=k)$ be the prior probability of class $k$ and $f_k(x)$ the density of $X$ given $Y=k$. By Bayes' theorem,
+\begin{equation}\label{eq:da-posterior}
+p_k(x)=\frac{\pi_kf_k(x)}{\sum_{l=1}^K\pi_lf_l(x)},
+\end{equation}
+and since the denominator does not depend on $k$, the Bayes classifier is
+\[
+f^*(x)=\argmax_k\,\pi_kf_k(x)=\argmax_k\,\big(\log\pi_k+\log f_k(x)\big).
+\]
+A parametric model for $f_k$ is fitted to the inputs of each class, $\pi_k$ is estimated by the class frequency, and the estimates are plugged in. The methods below differ only in the model for $f_k$.
+
+\subsection{Linear Discriminant Analysis}\label{sec:lda}
+
+\begin{definition}[LDA]
+\emph{Linear discriminant analysis} assumes Gaussian classes with a common covariance matrix: $X\given Y=k\sim\cN(\mu_k,\Sigma)$ for $k=1,\dots,K$.
+\end{definition}
+
+With the Gaussian density of \cref{sec:gaussian},
+\begin{align*}
+\log\pi_kf_k(x)&=\log\pi_k-\tfrac12(x-\mu_k)\T\Sigma^{-1}(x-\mu_k)+\text{const}\\
+&=\log\pi_k+x\T\Sigma^{-1}\mu_k-\tfrac12\mu_k\T\Sigma^{-1}\mu_k-\tfrac12x\T\Sigma^{-1}x+\text{const}.
+\end{align*}
+The term $-\frac12x\T\Sigma^{-1}x$ and the constant are the same for all classes and can be dropped. What remains defines the \emph{discriminant functions}
+\begin{equation}\label{eq:lda-discriminant}
+\delta_k(x)=x\T\Sigma^{-1}\mu_k-\tfrac12\mu_k\T\Sigma^{-1}\mu_k+\log\pi_k,
+\end{equation}
+and the Bayes classifier is $\argmax_k\delta_k(x)$. Each $\delta_k$ is linear in $x$, hence the name, and the boundaries $\{\delta_k(x)=\delta_l(x)\}$ are hyperplanes. For $p=1$ the discriminant is $\delta_k(x)=x\mu_k/\sigma^2-\mu_k^2/(2\sigma^2)+\log\pi_k$; with two classes, equal priors, and $\mu_0<\mu_1$, the Bayes boundary is the midpoint $x=(\mu_0+\mu_1)/2$.
+
+\begin{algorithm}[H]
+\caption{Linear Discriminant Analysis}\label{alg:lda}
+\begin{algorithmic}[1]
+\Input{Data $\{(x_i,y_i)\}_{i=1}^n$ with $y_i\in\{1,\dots,K\}$.}
+\For{$k=1,\dots,K$}
+  \State $n_k\gets\sum_i\ind\{y_i=k\}$; \quad $\hat\pi_k\gets n_k/n$
+  \State $\hat\mu_k\gets\frac1{n_k}\sum_{i:y_i=k}x_i$ \Comment{class mean}
+\EndFor
+\State $\hat\Sigma\gets\frac1{n-K}\sum_{k=1}^K\sum_{i:y_i=k}(x_i-\hat\mu_k)(x_i-\hat\mu_k)\T$ \Comment{pooled within-class covariance}
+\State $\hat\delta_k(x)\gets x\T\hat\Sigma^{-1}\hat\mu_k-\frac12\hat\mu_k\T\hat\Sigma^{-1}\hat\mu_k+\log\hat\pi_k$ for $k=1,\dots,K$
+\Output{Classifier $\hat f(x)=\argmax_k\hat\delta_k(x)$; probabilities $\hat p_k(x)=\softmax\big(\hat\delta_1(x),\dots,\hat\delta_K(x)\big)_k$.}
+\end{algorithmic}
+\end{algorithm}
+
+Fitting is a single pass over the data with no iterative optimization. The probabilities in the output line follow from \eqref{eq:da-posterior}, because $\pi_kf_k(x)\propto\exp\delta_k(x)$ with a proportionality factor common to all classes.
+
+\begin{remark}[MLE versus Unbiased Estimates]
+The lectures state that the estimates in \cref{alg:lda} are the MLEs. This holds for $\hat\pi_k$ and $\hat\mu_k$, but maximizing the joint likelihood of $(x_i,y_i)$ gives $\hat\Sigma$ with denominator $n$, as derived in Tutorial~7; the denominator $n-K$ makes the estimate unbiased. The difference is negligible unless $n$ is close to $K$, and it does not affect the decision boundaries much.
+\end{remark}
+
+\subsection{Quadratic Discriminant Analysis}\label{sec:qda}
+
+\emph{Quadratic discriminant analysis} (QDA) allows a separate covariance matrix per class, $X\given Y=k\sim\cN(\mu_k,\Sigma_k)$. The quadratic term no longer cancels, and
+\[
+\delta_k(x)=-\tfrac12x\T\Sigma_k^{-1}x+x\T\Sigma_k^{-1}\mu_k-\tfrac12\mu_k\T\Sigma_k^{-1}\mu_k-\tfrac12\log|\Sigma_k|+\log\pi_k
+\]
+is quadratic in $x$, as are the decision boundaries. Fitting follows \cref{alg:lda} with line~5 replaced by the per-class covariances $\hat\Sigma_k=\frac1{n_k-1}\sum_{i:y_i=k}(x_i-\hat\mu_k)(x_i-\hat\mu_k)\T$.
+
+The price of flexibility is the number of parameters. Besides the $K-1$ free priors and the $pK$ means, LDA estimates one covariance matrix with $p(p+1)/2$ entries, while QDA estimates $K$ of them, $Kp(p+1)/2$ in total. When $p$ is large relative to $n$ the QDA covariance estimates are very noisy, and even LDA breaks down once $\hat\Sigma$ is singular. This is the bias--variance trade-off of \cref{sec:bias-variance}: QDA has lower bias when the class covariances truly differ, LDA has lower variance.
+
+\subsection{Naive Bayes}\label{sec:naive-bayes}
+
+\begin{definition}[Naive Bayes]
+The \emph{naive Bayes} classifier assumes that the features are conditionally independent given the class: $f_k(x)=\prod_{j=1}^pf_{kj}(x_j)$, where $f_{kj}$ is the density of $X_j$ given $Y=k$.
+\end{definition}
+
+Each one-dimensional density $f_{kj}$ is estimated separately, from any suitable family: a Gaussian for a quantitative feature, a table of frequencies for a categorical one. Mixed feature types therefore pose no difficulty. With Gaussian $f_{kj}=\cN(\mu_{kj},\sigma_{kj}^2)$, naive Bayes is QDA with diagonal covariances $\Sigma_k=\diag(\sigma_{k1}^2,\dots,\sigma_{kp}^2)$, and
+\[
+\delta_k(x)=-\frac12\sum_{j=1}^p\frac{(x_j-\mu_{kj})^2}{\sigma_{kj}^2}-\frac12\sum_{j=1}^p\log\sigma_{kj}^2+\log\pi_k.
+\]
+Only $2pK$ parameters are needed besides the priors. The independence assumption is rarely true, yet the classifier often works well: it needs only the ranking of $\pi_kf_k(x)$ to be right, not the probabilities themselves, and the variance saved by the assumption usually outweighs its bias when $p$ is large.
+
+\begin{remark}[Connection to Graphical Models and Mixtures]
+Naive Bayes is the simplest directed graphical model: the class $Y$ is the single parent of every feature, and the factorization $p(x,y)=\pi_y\prod_jf_{yj}(x_j)$ is read off the graph (\cref{sec:dag}). The Gaussian generative classifiers also return in Part~III. A Gaussian mixture model (\cref{sec:gmm}) is exactly the QDA model in which the labels $y_i$ are \emph{not observed}; the EM algorithm (\cref{alg:em-gmm}) then replaces the class counts and class means of \cref{alg:lda} by their expectations under the current posterior probabilities \eqref{eq:da-posterior}.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+Generative classifiers are fitted in closed form, handle many classes naturally, and give the most efficient estimates when their distributional assumptions hold. They also remain stable when the classes are well separated. However, the Gaussian assumption may be badly wrong, for example for skewed or categorical features; QDA needs many parameters; and the probabilities are only as good as the model for $f_k$.
+\end{notebox}
+
+\section{Logistic Regression versus LDA}\label{sec:lr-vs-lda}
+
+The two methods lead to the same functional form. For LDA with two classes, subtracting the discriminants \eqref{eq:lda-discriminant} gives
+\[
+\log\frac{p_1(x)}{p_0(x)}=\delta_1(x)-\delta_0(x)=c_0+c\T x,
+\]
+where $c=\Sigma^{-1}(\mu_1-\mu_0)$ and $c_0=\log(\pi_1/\pi_0)-\frac12(\mu_1+\mu_0)\T\Sigma^{-1}(\mu_1-\mu_0)$,
+which is exactly the logistic regression model; in general the LDA posterior \eqref{eq:da-posterior} has the softmax form \eqref{eq:softmax-model}. The difference lies entirely in how the coefficients are estimated.
+
+\begin{remark}[Discriminative versus Generative Learning]\label{rem:disc-vs-gen}
+Logistic regression maximizes the \emph{conditional} likelihood $\prod_ip(y_i\given x_i)$ and makes no assumption about the distribution of $X$; this is \emph{discriminative} learning. LDA maximizes the \emph{joint} likelihood $\prod_ip(x_i,y_i)=\prod_i\pi_{y_i}f_{y_i}(x_i)$, which also uses the information in the marginal distribution of the inputs, at the cost of assuming it is Gaussian; this is \emph{generative} learning. If the Gaussian assumption holds, LDA uses the data more efficiently; if it fails, logistic regression is more robust. The same distinction runs through Part~III, where generative models of the data are the main object of study.
+\end{remark}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Method & Models & Fitting & Works well when \\
+\midrule
+Logistic regression & $p_k(x)$, softmax-linear & iterative MLE of $p(y\given x)$ & classes overlap; $X$ non-Gaussian \\
+LDA & $X\given Y=k\sim\cN(\mu_k,\Sigma)$ & closed form, joint MLE & Gaussian classes; small $n$; many classes \\
+QDA & $X\given Y=k\sim\cN(\mu_k,\Sigma_k)$ & closed form & covariances differ; $n$ large relative to $p^2$ \\
+Naive Bayes & independent features within class & one density per feature & $p$ large; mixed feature types \\
+$k$-NN (\cref{alg:knn}) & nothing (local vote) & none & nonlinear boundary; $p$ small, $n$ large \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}{Limitations and what comes next}
+Every method of this chapter goes through an estimate of the class probabilities, and every parametric one produces linear or quadratic decision boundaries. When the goal is only to separate the classes, one can ask for the separating hyperplane directly and choose the one that is geometrically most robust, the one with the widest margin. This leads to the support vector machine of \cref{ch:svm}, which replaces the logistic loss by the hinge loss and, through its dual formulation, opens the door to nonlinear boundaries via kernels.
+\end{notebox}

@@ -1,0 +1,223 @@
+\chapter{Linear Regression and Model Selection}\label{ch:linreg}
+
+\Cref{ch:learning} framed supervised learning as estimating $f$ in $Y=f(X)+\varepsilon$ and showed that the expected test error splits into bias and variance. Linear regression is the simplest parametric answer: it restricts $f$ to linear functions of the features, which makes fitting a least squares problem with a closed-form solution, and makes the variance of the fit explicit. \Cref{sec:ols} defines the model and the ordinary least squares estimator, \cref{sec:ols-inference} studies its sampling properties and the resulting inference, and \cref{sec:linreg-extensions} shows how qualitative predictors and interactions fit into the same framework. The second half of the chapter turns to a question that recurs throughout these notes: how to choose among several candidate models when only training data are available. \Cref{sec:cv} estimates the test error directly by cross-validation, \cref{sec:info-criteria} corrects the training error analytically, and \cref{sec:subset} applies both ideas to the selection of predictors.
+
+\section{The Linear Model and Ordinary Least Squares}\label{sec:ols}
+
+Let $Y\in\R$ be the response and $X=(X_1,\dots,X_p)\in\R^p$ the vector of features.
+
+\begin{definition}[Linear Regression Model]\label{def:linear-model}
+The \emph{linear regression model} assumes
+\[
+Y=\beta_0+\beta_1X_1+\dots+\beta_pX_p+\varepsilon,\qquad \E[\varepsilon\given X]=0,
+\]
+with unknown constants $\beta_0$ (the \emph{intercept}) and $\beta_1,\dots,\beta_p$ (the \emph{coefficients}). For inference one usually adds that the errors of different observations are uncorrelated with common variance $\Var(\varepsilon)=\sigma^2$ (homoscedasticity), and sometimes that $\varepsilon\sim\cN(0,\sigma^2)$.
+\end{definition}
+
+Given estimates $\hat\beta_0,\dots,\hat\beta_p$, the prediction at $x$ is the linear predictor $\hatf(x)=\hat\beta_0+\hat\beta_1x_1+\dots+\hat\beta_px_p$. To choose the estimates, recall from \cref{sec:decision-theory} that under squared loss the best predictor minimizes $\E[(Y-g(X))^2]$. Restricting $g$ to linear functions and replacing the expectation by the average over the training data gives ordinary least squares. In matrix form, let $x_i=(1,x_{i1},\dots,x_{ip})\T\in\R^{p+1}$, let $X\in\R^{n\times(p+1)}$ have rows $x_i\T$, and let $y=(y_1,\dots,y_n)\T$.
+
+\begin{definition}[Ordinary Least Squares]\label{def:ols}
+The \emph{ordinary least squares} (OLS) estimator is
+\[
+\hat\beta=\argmin_{\beta\in\R^{p+1}}\frac1n\sum_{i=1}^n\big(y_i-x_i\T\beta\big)^2=\argmin_{\beta\in\R^{p+1}}\frac1n\norm{y-X\beta}_2^2 .
+\]
+The quantity $\mathrm{RSS}(\beta)=\norm{y-X\beta}_2^2$ is the \emph{residual sum of squares}; $y_i-x_i\T\hat\beta$ is the $i$-th \emph{residual}.
+\end{definition}
+
+OLS is an instance of a general recipe, \emph{empirical risk minimization}: choose
+\begin{equation}\label{eq:erm-linreg}
+\hatf=\argmin_{g\in\cF}\frac1n\sum_{i=1}^nL\big(y_i,g(x_i)\big)
+\end{equation}
+for a loss $L$ and a class of functions $\cF$. OLS takes $L(y,\hat y)=(y-\hat y)^2$ and $\cF=\{x\mapsto x\T\beta\}$. Most methods in \cref{part:prediction} are obtained by changing $L$, changing $\cF$, or adding a penalty to \eqref{eq:erm-linreg}. What makes OLS special is that \eqref{eq:erm-linreg} can be solved in closed form. Setting the gradient of $\norm{y-X\beta}_2^2$ to zero gives the \emph{normal equations}
+\[
+X\T X\,\hat\beta=X\T y,\qquad\text{so}\qquad \hat\beta=(X\T X)^{-1}X\T y\quad\text{if $X$ has full column rank.}
+\]
+The fitted values are $\hat y=X\hat\beta=Hy$ with the \emph{hat matrix} $H=X(X\T X)^{-1}X\T$. Geometrically, $H$ is the orthogonal projection onto the column space of $X$: OLS finds the point of that subspace closest to $y$, and the residual vector $y-\hat y$ is orthogonal to every column of $X$. The diagonal entries $h_i=H_{ii}$ are the \emph{leverages} of the observations and reappear in \cref{prop:loocv-shortcut}.
+
+\begin{remark}[Connection to Maximum Likelihood]\label{rem:ols-mle}
+If $\varepsilon\sim\cN(0,\sigma^2)$, the log-likelihood of $\beta$ is $-\frac{1}{2\sigma^2}\norm{y-X\beta}_2^2$ up to terms that do not depend on $\beta$. OLS is therefore the maximum likelihood estimator of \cref{sec:mle} under Gaussian noise. This probabilistic reading is what allows the Bayesian treatment of \cref{sec:blr} and the likelihood-based criteria AIC and BIC in \cref{sec:info-criteria}.
+\end{remark}
+
+\begin{remark}[Connection to Gradient Descent]
+Solving the normal equations costs $O(np^2+p^3)$ operations. When $p$ is large, or when the loss is changed so that no closed form exists, the same objective is minimized iteratively by gradient descent (\cref{alg:gd}); OLS is the first worked example in \cref{ch:optimization}.
+\end{remark}
+
+\section{Sampling Properties and Inference}\label{sec:ols-inference}
+
+The training data are realizations of random variables, so $\hat\beta$ is random: a different training set gives a different fitted line, although the fits scatter around the true regression line. For the analysis we treat the design matrix $X$ as fixed and the errors $\varepsilon_1,\dots,\varepsilon_n$ as i.i.d.\ with mean zero and variance $\sigma^2$.
+
+\begin{proposition}[Mean and Covariance of OLS]\label{prop:ols-moments}
+If $X$ has full column rank, then
+\[
+\E[\hat\beta]=\beta,\qquad \Cov(\hat\beta)=\sigma^2(X\T X)^{-1},\qquad \E\big[\norm{\hat\beta-\beta}_2^2\big]=\sigma^2\tr\big[(X\T X)^{-1}\big].
+\]
+In particular, if $X\T X=nI_{p+1}$, then $\E\big[\norm{\hat\beta-\beta}_2^2\big]=\sigma^2(p+1)/n$.
+\end{proposition}
+
+The last identity is the key message for what follows: OLS is unbiased, but its estimation error grows linearly in the number of parameters. Every additional predictor, relevant or not, adds variance.
+
+The noise level is estimated by $\hat\sigma^2=\mathrm{RSS}(\hat\beta)/(n-p-1)$, where dividing by $n-p-1$ rather than $n$ makes the estimate unbiased. The standard error of $\hat\beta_j$ is $\mathrm{SE}(\hat\beta_j)=\sqrt{\hat\sigma^2[(X\T X)^{-1}]_{jj}}$, and an approximate $95\%$ confidence interval is $\hat\beta_j\pm1.96\,\mathrm{SE}(\hat\beta_j)$. To test $H_0\colon\beta_j=0$ (no linear relationship between $Y$ and $X_j$ given the other predictors), one uses
+\[
+t=\frac{\hat\beta_j}{\mathrm{SE}(\hat\beta_j)},
+\]
+which has a $t$-distribution with $n-p-1$ degrees of freedom under $H_0$ and Gaussian errors. A small $p$-value is evidence that $X_j$ is useful; it says nothing about the size of $\beta_j$. Joint hypotheses such as $\beta_{p-q+1}=\dots=\beta_p=0$ are tested with an $F$-statistic.
+
+\begin{definition}[Coefficient of Determination]\label{def:r2}
+With $\mathrm{TSS}=\sum_{i=1}^n(y_i-\bar y)^2$, the \emph{coefficient of determination} is $R^2=1-\mathrm{RSS}/\mathrm{TSS}\in[0,1]$, the fraction of the sample variability of $Y$ explained by the regression.
+\end{definition}
+
+$R^2$ is a training quantity: it can only increase when a predictor is added, so a high $R^2$ does not mean that the model predicts well. Correcting this optimism is the subject of \cref{sec:info-criteria}.
+
+\section{Qualitative Predictors, Interactions and Diagnostics}\label{sec:linreg-extensions}
+
+The word ``linear'' refers to the parameters, not to the raw inputs. Many useful models fit the framework after the features are transformed.
+
+\smallskip\noindent\textbf{Qualitative predictors.} A categorical predictor with $L$ levels, such as ethnicity in the Credit data, is encoded by $L-1$ dummy (indicator) variables. The level with all dummies equal to zero is the \emph{baseline}, and each dummy coefficient is the average difference in the response between its level and the baseline. Using $L$ dummies together with an intercept would make $X$ rank deficient.
+
+\smallskip\noindent\textbf{Interactions.} In $Y=\beta_0+\beta_1X_1+\beta_2X_2+\varepsilon$ the effect of a unit increase of $X_1$ is $\beta_1$, whatever the value of $X_2$. Adding the product term,
+\[
+Y=\beta_0+\beta_1X_1+\beta_2X_2+\beta_3X_1X_2+\varepsilon=\beta_0+(\beta_1+\beta_3X_2)X_1+\beta_2X_2+\varepsilon,
+\]
+makes the slope of $X_1$ depend on $X_2$. With $X_1$ a gender dummy and $X_2$ years of education, $\beta_2$ is the education slope for the baseline group and $\beta_2+\beta_3$ the slope for the other group.
+
+\smallskip\noindent\textbf{Transformed predictors.} Terms such as $X_1^2$ or $X_2^3$ make the fit nonlinear in $X$ while keeping it linear in $\beta$. \Cref{ch:nonlinear} develops this idea systematically.
+
+\smallskip\noindent\textbf{Diagnostics.} The assumptions of \cref{def:linear-model} should be checked, mostly with residual plots: nonlinearity of the response--predictor relationship, correlated errors, non-constant error variance, outliers, and collinearity among the predictors (which inflates $(X\T X)^{-1}$ and hence the variance in \cref{prop:ols-moments}).
+
+\section{Why Look Beyond OLS}\label{sec:beyond-ols}
+
+\Cref{prop:ols-moments} identifies two weaknesses of OLS with all $p$ predictors. For \emph{prediction}, the variance is large when $p$ is large relative to $n$, and when $p>n$ the matrix $X\T X$ is singular, so the estimator is not even unique. For \emph{interpretation}, a model in which irrelevant coefficients are set exactly to zero is easier to understand. There are three families of alternatives:
+\begin{enumerate}[(1)]
+  \item \emph{Subset selection}: identify a subset of the predictors and fit OLS on it (\cref{sec:subset}).
+  \item \emph{Shrinkage}: fit all predictors but shrink the coefficients toward zero, trading a little bias for a large reduction in variance (\cref{ch:shrinkage}).
+  \item \emph{Dimension reduction}: replace the $p$ predictors by $M<p$ linear combinations, for instance principal components (\cref{sec:pca}), and fit OLS on those.
+\end{enumerate}
+Each family produces not one model but a list of candidates, indexed by the subset, the amount of shrinkage, or $M$. Choosing among them requires an estimate of the expected test error. With a separate test set one simply compares test errors; without one there are two routes, which the next two sections describe: estimate the test error directly by splitting the data, or adjust the training error for model complexity.
+
+\section{Validation Sets and Cross-Validation}\label{sec:cv}
+
+The training error is an optimistic estimate of the test error, because the model was fitted to those very points; the gap grows with flexibility (\cref{sec:bias-variance}). Data-splitting methods hold out some observations, which then play the role of a test set.
+
+\smallskip\noindent\textbf{Validation set approach.} Randomly split the data into a training part and a validation (hold-out) part, fit on the first, and use the mean squared error on the second as the estimate. This is simple but has two drawbacks. The estimate depends strongly on the random split; on the Auto data, repeating the split ten times gives visibly different validation curves for polynomial fits of mpg on horsepower. And since only part of the data is used for fitting, the validation error tends to overestimate the test error of the model fitted on all data.
+
+\smallskip\noindent\textbf{Leave-one-out cross-validation.} Hold out one observation at a time: fit $\hatf^{(-i)}$ on all data except $(x_i,y_i)$, record $\MSE_i=(y_i-\hatf^{(-i)}(x_i))^2$, and average,
+\[
+\mathrm{CV}_{(n)}=\frac1n\sum_{i=1}^n\MSE_i .
+\]
+Each training set is almost the full data set, and there is no randomness in the splitting. The price is $n$ fits. For least squares this price disappears.
+
+\begin{proposition}[LOOCV Shortcut for Least Squares]\label{prop:loocv-shortcut}
+For OLS (and for least squares on any fixed set of basis functions, $\hat y=Hy$, including polynomial regression and regression splines),
+\[
+\mathrm{CV}_{(n)}=\frac1n\sum_{i=1}^n\Big(\frac{y_i-\hat y_i}{1-h_i}\Big)^2,
+\]
+where $\hat y_i$ is the fitted value from the full data and $h_i=H_{ii}$ is the leverage of observation $i$.
+\end{proposition}
+
+High-leverage points have residuals that the full fit has pulled toward zero; dividing by $1-h_i$ undoes this.
+
+\smallskip\noindent\textbf{$k$-fold cross-validation.} The general procedure divides the data into $k$ folds of roughly equal size and uses each fold once as the validation set. LOOCV is the special case $k=n$; in practice $k=5$ or $k=10$ is common, which needs only $k$ fits and gives estimates that are close to LOOCV.
+
+\begin{algorithm}[H]
+\caption{$k$-Fold Cross-Validation for Model Selection}\label{alg:kfold-cv}
+\begin{algorithmic}[1]
+\Input{Data $\cD=\{(x_i,y_i)\}_{i=1}^n$; candidate fitting procedures $\mathcal{M}_1,\dots,\mathcal{M}_m$ (models, or one method with different tuning parameters); number of folds $k$; loss $L$.}
+\State Randomly partition $\{1,\dots,n\}$ into folds $F_1,\dots,F_k$ of roughly equal size.
+\For{$j=1,\dots,m$}
+  \For{$\ell=1,\dots,k$}
+    \State Fit $\mathcal{M}_j$ on $\{(x_i,y_i):i\notin F_\ell\}$, giving $\hatf_j^{(-\ell)}$.
+    \State $\Err_{j\ell}\gets\frac1{|F_\ell|}\sum_{i\in F_\ell}L\big(y_i,\hatf_j^{(-\ell)}(x_i)\big)$ \Comment{error on the held-out fold}
+  \EndFor
+  \State $\mathrm{CV}_j\gets\frac1k\sum_{\ell=1}^k\Err_{j\ell}$
+\EndFor
+\State $j^*\gets\argmin_j\mathrm{CV}_j$
+\State Refit $\mathcal{M}_{j^*}$ on all of $\cD$.
+\Output{The selected model $\mathcal{M}_{j^*}$, its refitted predictor, and the CV estimates $\mathrm{CV}_1,\dots,\mathrm{CV}_m$.}
+\end{algorithmic}
+\end{algorithm}
+
+The same procedure works for classification with the $0$-$1$ loss $L(y,\hat y)=\ind\{y\ne\hat y\}$, in which case $\mathrm{CV}_j$ estimates the misclassification rate. \Cref{alg:kfold-cv} is the workhorse for tuning throughout these notes: the penalty $\lambda$ in ridge and lasso (\cref{alg:lambda-cv}), the number of neighbors in $k$-NN, the number of knots of a spline, and the size of a tree are all chosen this way.
+
+\begin{remark}[Every Step of the Fit Must Be Cross-Validated]\label{rem:cv-pitfall}
+Cross-validation is valid only if the held-out fold plays no role in fitting. Consider $100$ samples and $5000$ predictors: select the $10$ predictors most correlated with $y$, then fit OLS on them. Cross-validating only the OLS step, after screening on all data, gives a badly optimistic error estimate, because the held-out responses already influenced which predictors were chosen. The screening must be repeated inside every fold, on the training part only.
+\end{remark}
+
+\section{Adjusting the Training Error: Cp, AIC, BIC and Adjusted R\texorpdfstring{$^2$}{2}}\label{sec:info-criteria}
+
+The second route avoids refitting by adding to the training error a penalty that grows with model complexity. For a fitted linear model with $d$ predictors (plus intercept), let $\mathrm{RSS}=\sum_{i=1}^n(y_i-\hatf(x_i))^2$ and let $\hat\sigma^2$ be an estimate of the noise variance, typically from the model with all predictors.
+
+\begin{definition}[Model Selection Criteria]\label{def:criteria}
+\leavevmode
+\begin{enumerate}[(i)]
+  \item Mallows' $C_p=\frac1n\big(\mathrm{RSS}+2d\hat\sigma^2\big)$.
+  \item $\mathrm{AIC}=-2\log\hat L+2d$ and $\mathrm{BIC}=-2\log\hat L+(\log n)\,d$, where $\hat L$ is the maximized likelihood of the fitted model.
+  \item Adjusted $R^2=1-\dfrac{\mathrm{RSS}/(n-d-1)}{\mathrm{TSS}/(n-1)}$.
+\end{enumerate}
+One selects the model with the smallest $C_p$, AIC or BIC, or the largest adjusted $R^2$.
+\end{definition}
+
+$C_p$ adds $2d\hat\sigma^2/n$ to the training MSE, which, up to a constant that is the same for all models, is the amount by which the training MSE underestimates the test MSE of a least squares fit on average. Maximizing adjusted $R^2$ is the same as minimizing $\mathrm{RSS}/(n-d-1)$: the RSS always decreases when a predictor is added, but $\mathrm{RSS}/(n-d-1)$ increases if the added predictor removes too little of it. BIC replaces the factor $2$ by $\log n$, which exceeds $2$ as soon as $n\ge8$; it therefore penalizes model size more heavily and selects smaller models than AIC and $C_p$.
+
+\begin{proposition}[AIC and Cp Agree for Gaussian Linear Models]\label{prop:aic-cp}
+For the linear model with $\varepsilon_i\iidsim\cN(0,\sigma^2)$ and $\sigma^2$ known, $\mathrm{AIC}=\mathrm{RSS}/\sigma^2+2d+\text{const}$, so $\frac{\sigma^2}{n}\mathrm{AIC}=C_p+\text{const}$ and the two criteria select the same model.
+\end{proposition}
+
+This follows directly from the Gaussian log-likelihood in \cref{rem:ols-mle}: $-2\log\hat L=n\log(2\pi\sigma^2)+\mathrm{RSS}/\sigma^2$.
+
+\begin{remark}[Notation in the Slides]
+The slides define $\mathrm{RSS}$ once with a factor $1/n$ (as the training MSE) and then write $C_p=\frac1n\mathrm{RSS}+\frac{2p\sigma^2}{n}$, counting the same $1/n$ twice; the worked example uses $C_p=\frac1n(\mathrm{RSS}+2d\sigma^2)$ with $\mathrm{RSS}$ an unnormalized sum, which is the convention adopted here. The tutorial's Gaussian likelihood has normalizing constant $(2\pi\sigma)^{-n}$; it should be $(2\pi\sigma^2)^{-n/2}$, which does not affect the conclusion of \cref{prop:aic-cp}.
+\end{remark}
+
+\begin{notebox}{Data Splitting versus Adjusting the Training Error}
+Cross-validation estimates the test error directly and applies to any fitting procedure, including those for which the number of parameters or the noise variance is hard to pin down (trees, $k$-NN, neural networks). It needs a reasonably large sample and many fits, and it is hard to give guarantees for the model it selects. $C_p$, AIC, BIC and adjusted $R^2$ need only one fit per candidate, but they are tied to parametric models with a correctly specified likelihood and a consistent estimate of $\sigma^2$. When those conditions hold, the adjusted criteria are a cheap alternative; otherwise cross-validation is the safer choice.
+\end{notebox}
+
+\section{Subset Selection}\label{sec:subset}
+
+We now apply both routes to choosing which predictors enter a linear model. With $p$ predictors there are $2^p$ subsets.
+
+\begin{algorithm}[H]
+\caption{Best Subset Selection}\label{alg:best-subset}
+\begin{algorithmic}[1]
+\Input{Data with predictors $X_1,\dots,X_p$; a criterion for comparing models of different sizes (CV error from \cref{alg:kfold-cv}, $C_p$, AIC, BIC, or adjusted $R^2$).}
+\State $\mathcal{M}_0\gets$ the null model with no predictors, which predicts $\bar y$ for every observation.
+\For{$k=1,\dots,p$}
+  \State Fit all $\binom pk$ least squares models that contain exactly $k$ predictors.
+  \State $\mathcal{M}_k\gets$ the one with the smallest RSS (equivalently, the largest $R^2$).
+\EndFor
+\State Select a single model among $\mathcal{M}_0,\dots,\mathcal{M}_p$ using the criterion.
+\Output{The selected model.}
+\end{algorithmic}
+\end{algorithm}
+
+The two comparison steps use different tools on purpose. Within a fixed size $k$ all candidates have the same complexity, so the training RSS ranks them correctly. Across sizes it does not: RSS decreases and $R^2$ increases with $k$, so choosing among $\mathcal{M}_0,\dots,\mathcal{M}_p$ by RSS would always pick $\mathcal{M}_p$. Line 6 therefore needs an estimate of the test error. The same algorithm applies to logistic regression (\cref{sec:logistic}) with the RSS replaced by the deviance, $-2$ times the maximized log-likelihood.
+
+Best subset selection fits $\sum_k\binom pk=2^p$ models, which is infeasible beyond a few dozen predictors, and searching such a large space also increases the chance of finding a model that fits the training data well by luck. Stepwise methods search a much smaller, nested path of models.
+
+\begin{algorithm}[H]
+\caption{Forward Stepwise Selection}\label{alg:forward-stepwise}
+\begin{algorithmic}[1]
+\Input{Data with predictors $X_1,\dots,X_p$; a criterion for comparing models of different sizes.}
+\State $\mathcal{M}_0\gets$ the null model.
+\For{$k=0,\dots,p-1$}
+  \State Fit all $p-k$ models that add one predictor not yet in $\mathcal{M}_k$ to the predictors of $\mathcal{M}_k$.
+  \State $\mathcal{M}_{k+1}\gets$ the one with the smallest RSS.
+\EndFor
+\State Select a single model among $\mathcal{M}_0,\dots,\mathcal{M}_p$ using the criterion.
+\Output{The selected model.}
+\end{algorithmic}
+\end{algorithm}
+
+Forward stepwise selection fits $1+\sum_{k=0}^{p-1}(p-k)=1+p(p+1)/2$ models instead of $2^p$. \emph{Backward stepwise selection} runs the same idea in reverse: start from the full model $\mathcal{M}_p$ and, for $k=p,\dots,1$, remove the predictor whose deletion increases the RSS the least, giving $\mathcal{M}_{k-1}$; it also fits $1+p(p+1)/2$ models but requires $n>p$ so that the full model can be fitted. Forward selection can be used even when $p>n$, by stopping before the model becomes too large. Both procedures are greedy: once a predictor has been added (or removed), the decision is never revisited, so the best model of a given size may be missed. On the Credit data, for instance, best subset and forward selection agree on the best models with one to three predictors but choose different four-predictor models.
+
+\begin{notebox}{Pros and Cons}
+Subset selection produces interpretable models that use only some of the predictors, and it combines naturally with any of the criteria of \cref{sec:cv,sec:info-criteria}. Best subset selection is exact but costs $2^p$ fits; stepwise selection is cheap but greedy. In both cases the fitted model is a discontinuous function of the data, since a predictor is either in or out, so small changes in the data can change the selected model and the fit, which keeps the variance high.
+\end{notebox}
+
+\begin{remark}[Connection to Resampling]
+Cross-validation is one of two resampling ideas in these notes. The other, the bootstrap (\cref{sec:bootstrap}), resamples the training data with replacement to estimate the variability of an estimator, and it underlies bagging and random forests.
+\end{remark}
+
+\begin{notebox}{Limitations and what comes next}
+OLS on all predictors has high variance when $p$ is large, and subset selection reduces it only through a discrete, expensive or greedy search whose output jumps when the data change slightly. \Cref{ch:shrinkage} keeps all predictors and instead shrinks the coefficients continuously toward zero. Ridge regression does so with a quadratic penalty, the lasso with an absolute-value penalty that also sets some coefficients exactly to zero and thus performs variable selection as a by-product. The penalty will turn out to be a prior in disguise, which leads to Bayesian linear regression.
+\end{notebox}

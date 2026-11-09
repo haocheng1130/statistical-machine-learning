@@ -1,0 +1,208 @@
+\chapter{The Learning Problem}\label{ch:learning}
+
+Every method in these notes answers the same question: given examples of inputs and outputs, how do we predict the output for a new input, and how good can such a prediction be? This chapter sets up that question precisely. \Cref{sec:supervised} introduces the supervised learning setting and the probabilistic viewpoint that STA 414 takes from the start. \Cref{sec:param-nonparam} contrasts parametric and non-parametric estimators and presents $k$-nearest neighbors, the simplest non-parametric method. \Cref{sec:decision-theory} asks what the best possible predictor is when the data distribution is known; the answer, the conditional mean for regression and the Bayes classifier for classification, is the target that every later method tries to estimate. \Cref{sec:train-test,sec:bias-variance} explain why the error on the training data is a poor guide to performance and decompose the test error into bias, variance, and irreducible noise.
+
+\section{Supervised Learning}\label{sec:supervised}
+
+Machine learning programs an algorithm to learn a task from data instead of coding the solution by hand. This is useful when a hand-written solution is hard to find (recognizing objects or speech), when the system must adapt to a changing environment (spam filtering), or when we want it to outperform its programmers. Three types of problems are usually distinguished.
+
+\begin{enumerate}[(i)]
+  \item In \emph{supervised learning} we observe pairs $(x_i,y_i)$ of inputs and outputs and learn the mapping from $x$ to $y$.
+  \item In \emph{unsupervised learning} we observe only inputs $x_i$ and look for structure: groups of similar observations, directions of largest variation, a model of how the data were generated.
+  \item In \emph{reinforcement learning} an agent collects its own data by interacting with an environment and learns to maximize a reward. It is the subject of the FINM 33165 notes and does not appear here.
+\end{enumerate}
+
+Statistical learning and machine learning share their models, algorithms, and mathematical tools. The difference is one of emphasis: statistics stresses models, interpretability, and the uncertainty of conclusions, while machine learning stresses algorithms, scalability, and predictive accuracy. STA 314 leans toward the first view and STA 414 toward the second, and these notes use both.
+
+\begin{definition}[Supervised Learning Problem]\label{def:supervised}
+The \emph{response} (output, target) $Y$ and the \emph{predictors} (inputs, features, covariates) $X=(X_1,\dots,X_p)$ are random with a joint distribution $p(x,y)$. The \emph{training data} $\cD=\{(x_i,y_i)\}_{i=1}^n$ consist of $n$ i.i.d.\ draws from this distribution. When $Y$ is quantitative the problem is called \emph{regression}; when $Y$ takes values in a finite unordered set $\cC$ it is called \emph{classification}. We write
+\[
+Y=f(X)+\varepsilon,\qquad \E[\varepsilon\given X]=0,
+\]
+where $f(x)=\E[Y\given X=x]$ is the \emph{regression function} and $\varepsilon$ collects measurement error and everything that $X$ does not explain. A \emph{learning method} maps the training data to an estimate $\hatf$, used to predict $\hat y=\hatf(x_0)$ at a new input $x_0$.
+\end{definition}
+
+With the training data in hand, the tasks of supervised learning are \emph{prediction} (accurately predict future responses), \emph{estimation} (understand how each feature affects the response), \emph{model selection} (choose among candidate models or feature sets), and \emph{inference} (quantify the uncertainty of all of the above). In the advertising example of the course, sales are regressed on TV, radio, and newspaper budgets; a good $\hatf$ predicts the sales of a new product, while the estimated coefficient of TV tells us how sales change with one more unit of TV budget.
+
+\begin{remark}[The Probabilistic Viewpoint]\label{rem:prob-view}
+STA 414 observes that all these problems are special cases of estimating a distribution from data. Supervised learning estimates $p(y\given x)$, unsupervised learning estimates $p(x)$, and if we had the joint $p(x,y)$ we could answer both, since
+\[
+p(y\given x)=\frac{p(x,y)}{\int p(x,y)\dd y},\qquad p(c\given x)=\frac{p(x,c)}{\sum_{c'}p(x,c')}
+\]
+for a continuous response $y$ and a class label $c$. Methods that model $p(y\given x)$ directly are called \emph{discriminative}; methods that model the joint $p(x,y)$ are called \emph{generative}. Logistic regression and linear discriminant analysis (\cref{sec:logistic,sec:lda}) are the standard pair. \Cref{ch:probability} develops the tools for fitting such distributions.
+\end{remark}
+
+\section{Parametric and Non-Parametric Methods}\label{sec:param-nonparam}
+
+There are two broad strategies for estimating $f$.
+
+A \emph{parametric} method assumes that $f$ belongs to a family indexed by finitely many parameters. The most important example is the linear model
+\[
+f(X)=\beta_0+\beta_1X_1+\dots+\beta_pX_p,
+\]
+which reduces the estimation of a function to the estimation of $p+1$ numbers. Computing the estimates $\hat\beta_0,\dots,\hat\beta_p$ from the data is called \emph{fitting} the model, and the same model can be fitted by different procedures (least squares in \cref{sec:ols}, penalized least squares in \cref{ch:shrinkage}). If a linear model fits poorly, one can enlarge the family: quadratic or polynomial terms, step functions such as $\beta_0+\beta_1\ind\{X\le0.5\}+\beta_2\ind\{X>0.5\}$ (\cref{ch:nonlinear}), or a two-layer neural network $W^{(2)}\sigma(W^{(1)}X+b^{(1)})+b^{(2)}$ (\cref{ch:nn}). More flexible families fit more shapes of $f$ but are harder to interpret: the effect of each feature can be read off a linear model, but not off a neural network. This trade-off between flexibility and interpretability recurs throughout Part~II.
+
+A \emph{non-parametric} method makes few assumptions about the form of $f$ and lets the data determine it locally. The prototype predicts at $x_0$ by averaging the responses of nearby training points.
+
+\subsection{$k$-Nearest Neighbors}\label{sec:knn}
+
+\begin{algorithm}[H]
+\caption{$k$-Nearest Neighbors}\label{alg:knn}
+\begin{algorithmic}[1]
+\Input{Training data $\cD=\{(x_i,y_i)\}_{i=1}^n$, number of neighbors $k\in\{1,\dots,n\}$, a distance on $\R^p$ (usually Euclidean), query point $x_0$.}
+\State Compute the distances $d_i=\norm{x_i-x_0}$ for $i=1,\dots,n$.
+\State Let $N_k(x_0)$ be the indices of the $k$ smallest distances, breaking ties arbitrarily.
+\If{regression}
+  \State $\hatf(x_0)\gets\frac1k\sum_{i\in N_k(x_0)}y_i$ \Comment{local average}
+\Else
+  \State $\hat p_j(x_0)\gets\frac1k\sum_{i\in N_k(x_0)}\ind\{y_i=j\}$ for every class $j$
+  \State $\hatf(x_0)\gets\argmax_j\hat p_j(x_0)$ \Comment{majority vote}
+\EndIf
+\Output{The prediction $\hatf(x_0)$; for classification also the class proportions $\hat p_j(x_0)$.}
+\end{algorithmic}
+\end{algorithm}
+
+There is no training step: the method stores the data and does all its work at prediction time, at a cost of $O(np)$ per query. The number of neighbors $k$ controls the flexibility of the fit. With $k=1$ the estimate interpolates the training data and is a jagged step function that follows every noisy observation; as $k$ grows the estimate becomes smoother, and with $k=n$ it is the constant $\bar y$. Roughly, the fit behaves like a model with $n/k$ parameters. The right $k$ is chosen by estimating the test error, for example by cross-validation (\cref{sec:cv}).
+
+\begin{remark}[Curse of Dimensionality]\label{rem:curse}
+Local averaging works well when $p$ is small (the lectures suggest at most three or four predictors) and $n$ is large, and it degrades quickly as $p$ grows. In high dimensions the $k$ nearest neighbors are no longer near. For points spread uniformly over the unit cube $[0,1]^p$, a sub-cube that contains a fraction $r$ of the data has edge length $r^{1/p}$; for $p=10$ and $r=0.01$ this is $0.63$, so a ``neighborhood'' with only $1\%$ of the data spans most of the range of every coordinate. Parametric assumptions, additive structure (\cref{sec:gam}), and learned features (\cref{ch:nn}) are the usual ways around this.
+\end{remark}
+
+\begin{notebox}{Pros and Cons}
+$k$-NN assumes almost nothing about $f$, is trivial to implement, and with a suitable $k$ approaches the best possible predictor as $n\to\infty$ in low dimensions. However, it gives no interpretable summary of how $X$ affects $Y$, prediction is slow for large $n$, all features enter the distance with equal weight, and performance collapses in high dimensions. Weighted $k$-NN and local regression (\cref{sec:local-regression}) refine the local average.
+\end{notebox}
+
+\section{Loss, Risk, and the Best Possible Predictor}\label{sec:decision-theory}
+
+To compare predictors we need a numerical criterion. A \emph{loss function} $L(y,\hat y)\ge0$ measures the cost of predicting $\hat y$ when the truth is $y$. The quality of a predictor $g$ is its \emph{risk}, the expected loss on a new observation,
+\[
+R(g)=\E\big[L(Y,g(X))\big]=\iint L(y,g(x))\,p(x,y)\dd x\dd y.
+\]
+In this section the distribution $p(x,y)$ is treated as known, and we ask which $g$ minimizes the risk. This is \emph{decision theory}. The answer is a benchmark: no learning method can do better, and every method can be viewed as an attempt to approximate it from data.
+
+\subsection{Regression}
+
+\begin{proposition}[Best Regression Function]\label{prop:best-regression}
+Under the squared loss $L(y,\hat y)=(y-\hat y)^2$, the risk of any $g$ decomposes as
+\[
+\E\big[(Y-g(X))^2\big]=\E\big[(g(X)-\E[Y\given X])^2\big]+\E\big[\Var(Y\given X)\big].
+\]
+The risk is therefore minimized by the regression function $f(x)=\E[Y\given X=x]$, and the minimum $\E[\Var(Y\given X)]=\Var(\varepsilon)$ is the \emph{irreducible error}.
+\end{proposition}
+
+The decomposition follows by adding and subtracting $\E[Y\given X]$ inside the square: the cross term vanishes because $\E\big[\E[Y\given X]-Y\given X\big]=0$. The second term does not depend on $g$ and the first is zero exactly when $g=f$. Other losses lead to other summaries of the conditional distribution; for example, the absolute loss $\lvert y-\hat y\rvert$ is minimized by the conditional median. The choice of loss should follow the application.
+
+\subsection{Classification}
+
+For classification with classes $\cC=\{1,\dots,K\}$, the natural loss is the 0--1 loss $L(y,\hat y)=\ind\{y\ne\hat y\}$, whose risk is the probability of a mistake, the \emph{expected error rate} $\E[\ind\{Y\ne g(X)\}]$. Write $p_k(x)=\Prob(Y=k\given X=x)$.
+
+\begin{definition}[Bayes Classifier]\label{def:bayes-classifier}
+The \emph{Bayes classifier} assigns each $x$ to its most probable class,
+\[
+f^*(x)=\argmax_{k\in\cC}p_k(x).
+\]
+It minimizes the expected error rate among all classifiers. Its error rate, the \emph{Bayes error rate}, is $\E\big[1-\max_kp_k(X)\big]$; conditionally on $X=x$ it equals $1-\max_kp_k(x)$.
+\end{definition}
+
+The proof is one line: for fixed $x$, predicting class $k$ is wrong with probability $1-p_k(x)$, which is smallest for the largest $p_k(x)$. The Bayes error is typically positive, because classes overlap: two patients with identical X-ray images can differ in whether they have cancer. In the binary case $\cC=\{0,1\}$ the Bayes classifier predicts $1$ if and only if $p_1(x)=\Prob(Y=1\given X=x)\ge0.5$, so \emph{learning a classifier amounts to estimating the conditional probability $p_1(x)$}. Since $p_1(x)=\E[Y\given X=x]$ for a $0/1$ response, this is again a regression problem, but one whose answer must lie in $[0,1]$; \cref{ch:classification} explains why ordinary least squares is not the right tool for it.
+
+Equivalently, a classifier divides the input space into \emph{decision regions} $\mathcal{R}_1,\dots,\mathcal{R}_K$, with $x\in\mathcal{R}_j$ assigned to class $j$. The probability of a mistake is $\sum_j\int_{\mathcal{R}_j}\sum_{k\ne j}p(x,k)\dd x$, and it is minimized pointwise by putting $x$ in the region of the class with the largest joint density $p(x,k)$, which is the same as the largest $p_k(x)$.
+
+\subsection{Asymmetric Losses and the Reject Option}
+
+Mistakes rarely cost the same. Missing a cancer is worse than a false alarm. Let $L_{kj}$ be the loss incurred when the true class is $k$ and we decide $j$, collected in a \emph{loss matrix}. The expected loss of deciding $j$ at $x$ is $\sum_kL_{kj}\,p_k(x)$, and the risk is minimized by choosing, at every $x$, the decision with the smallest expected loss. With $L_{kj}=\ind\{k\ne j\}$ this reduces to the Bayes classifier. When the class probabilities are close, it can be better not to decide at all and refer the case to a human; this is the \emph{reject option}.
+
+\begin{algorithm}[H]
+\caption{Plug-in Bayes Decision Rule}\label{alg:bayes-decision}
+\begin{algorithmic}[1]
+\Input{Estimated class probabilities $\hat p_1(x),\dots,\hat p_K(x)$ at a point $x$ (from any classifier); loss matrix $(L_{kj})$; optional reject threshold $\tau\in(0,1)$.}
+\State $\rho_j(x)\gets\sum_{k=1}^KL_{kj}\,\hat p_k(x)$ for $j=1,\dots,K$ \Comment{expected loss of deciding $j$}
+\If{the reject option is used and $\max_k\hat p_k(x)<\tau$}
+  \State \textbf{return} ``reject''
+\EndIf
+\Output{The decision $\hat\jmath(x)=\argmin_j\rho_j(x)$.}
+\end{algorithmic}
+\end{algorithm}
+
+The algorithm separates two tasks that are often confused. \emph{Inference} estimates the probabilities $p_k(x)$; \emph{decision} turns them into an action using the loss. The same fitted model supports different decisions when the costs change, which is why it pays to estimate probabilities rather than only labels. In the binary case, an asymmetric loss simply moves the threshold on $\hat p(x)$ away from $0.5$; tracing all thresholds gives the ROC curve of \cref{sec:classifier-eval}.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Loss & Optimal prediction at $x$ & Minimum risk \\
+\midrule
+Squared $(y-\hat y)^2$ & conditional mean $\E[Y\given X=x]$ & $\E[\Var(Y\given X)]$, the irreducible error \\
+Absolute $\lvert y-\hat y\rvert$ & conditional median & expected absolute deviation from the median \\
+0--1 $\ind\{y\ne\hat y\}$ & most probable class $\argmax_kp_k(x)$ & Bayes error rate $\E[1-\max_kp_k(X)]$ \\
+Loss matrix $L_{kj}$ & $\argmin_j\sum_kL_{kj}p_k(x)$ & $\E[\min_j\sum_kL_{kj}p_k(X)]$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Training Error, Test Error, and Overfitting}\label{sec:train-test}
+
+In practice $p(x,y)$ is unknown and $\hatf$ is computed from the training data, so the risk must be estimated. For regression the target is the \emph{expected test error}
+\[
+\Err(\hatf)=\E\big[(Y_*-\hatf(X_*))^2\big],
+\]
+where $(X_*,Y_*)$ is a new pair independent of $\cD$, and the expectation is over both the new pair and the training data that produced $\hatf$. The obvious estimate is the \emph{training error}
+\[
+\overline{\mathrm{err}}=\MSE_{\text{train}}(\hatf)=\frac1n\sum_{i=1}^n\big(y_i-\hatf(x_i)\big)^2.
+\]
+It is not a valid measure of quality. Most methods choose $\hatf$ precisely by making the training error small over a model class, so a richer class always achieves a smaller training error, and the extreme choice $\hatf(x_i)=y_i$ achieves zero. Such a fit follows the noise $\varepsilon$ rather than the signal $f$, which is called \emph{overfitting}. A fit that is too rigid to capture $f$, such as a plane fitted to a curved income surface, \emph{underfits}.
+
+The honest alternative is the \emph{test error} on data $\{(x_{Ti},y_{Ti})\}_{i=1}^m$ that were not used to fit $\hatf$,
+\[
+\MSE_{\text{test}}(\hatf)=\frac1m\sum_{i=1}^m\big(y_{Ti}-\hatf(x_{Ti})\big)^2,
+\]
+and for classification the analogous training and test error rates $\frac1n\sum_i\ind\{y_i\ne\hatf(x_i)\}$ and $\frac1m\sum_i\ind\{y_{Ti}\ne\hatf(x_{Ti})\}$. As flexibility increases, the training error decreases monotonically, while the test error first decreases and then increases: a U-shape. When no test set is available, the test error is estimated by holding out part of the data or by cross-validation (\cref{sec:cv}), or by correcting the training error for the complexity of the model (\cref{sec:info-criteria}). The best model is the one with the smallest expected test error, and among models with similar test error we prefer the simpler one.
+
+\section{The Bias--Variance Trade-off}\label{sec:bias-variance}
+
+Why is the test error U-shaped? The answer is a decomposition of the expected test error at a point.
+
+\begin{theorem}[Bias--Variance Decomposition]\label{thm:bias-variance}
+Let $Y_*=f(x_*)+\varepsilon_*$ with $\E[\varepsilon_*]=0$, where $\varepsilon_*$ is independent of the training data, and let $\hatf$ be any estimator computed from the training data. Then
+\[
+\E\big[(Y_*-\hatf(x_*))^2\big]=\underbrace{\Var\big(\hatf(x_*)\big)}_{\text{variance}}+\underbrace{\big(\E[\hatf(x_*)]-f(x_*)\big)^2}_{\text{squared bias}}+\underbrace{\Var(\varepsilon_*)}_{\text{irreducible error}},
+\]
+where the expectations are over the training data and $\varepsilon_*$. In particular, the expected test error is at least $\Var(\varepsilon_*)$.
+\end{theorem}
+
+The identity comes from writing $Y_*-\hatf(x_*)=\varepsilon_*+\big(f(x_*)-\E\hatf(x_*)\big)+\big(\E\hatf(x_*)-\hatf(x_*)\big)$. The three terms are uncorrelated, since $\varepsilon_*$ is independent of the training data and the last term has mean zero, so the expected square is the sum of the three expected squares. Averaging over $x_*$ gives the same decomposition for $\Err(\hatf)$.
+
+The \emph{variance} measures how much $\hatf$ would change if it were estimated from a different training set. The \emph{bias} is the error introduced by approximating a complicated $f$ with a simpler model; for example, fitting a line when $f$ is a cubic polynomial produces a bias that no amount of data removes. As the flexibility of the method increases, the bias typically decreases and the variance increases. The variance also depends on the sample size, roughly in proportion to (complexity of $\hatf$)$/n$: with little data a flexible method is dominated by variance, and with much data its smaller bias wins. \Cref{fig:bias-variance} shows the resulting trade-off.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1.15cm,y=1.15cm]
+\draw[-{Stealth[length=2mm]}] (0,0) -- (7.2,0) node[below left, font=\small] {flexibility};
+\draw[-{Stealth[length=2mm]}] (0,0) -- (0,3.8) node[above, font=\small] {error};
+\draw[dashed, gray] (0,0.8) -- (6.6,0.8) node[right, font=\scriptsize, text=black] {$\Var(\varepsilon)$};
+\draw[dotted, thick] (2.6,0) -- (2.6,1.77);
+\draw[thick, blue!70!black, domain=0.3:6.6, smooth, variable=\x] plot (\x, {2/(\x+0.5)}) node[right, font=\scriptsize] {bias$^2$};
+\draw[thick, orange!85!black, domain=0.3:6.6, smooth, variable=\x] plot (\x, {0.04*\x*\x+0.05}) node[right, font=\scriptsize] {variance};
+\draw[very thick, red!75!black, domain=0.3:6.6, smooth, variable=\x] plot (\x, {2/(\x+0.5)+0.04*\x*\x+0.85}) node[right, font=\scriptsize] {test error};
+\end{tikzpicture}
+\caption{Schematic bias--variance trade-off. The expected test error is the sum of the squared bias, the variance, and the irreducible error; it is smallest at an intermediate flexibility (dotted line). The training error, not shown, keeps decreasing and eventually falls below $\Var(\varepsilon)$.}
+\label{fig:bias-variance}
+\end{figure}
+
+\begin{remark}[Bias and Variance of $k$-NN]\label{rem:knn-bias-variance}
+Suppose the inputs $x_1,\dots,x_n$ are fixed and $\Var(\varepsilon)=\sigma^2$. The $k$-NN estimate at $x_0$ averages $k$ independent responses, so
+\[
+\E\big[(Y_*-\hatf_k(x_0))^2\big]=\sigma^2+\Big(f(x_0)-\frac1k\sum_{i\in N_k(x_0)}f(x_i)\Big)^2+\frac{\sigma^2}{k}.
+\]
+Increasing $k$ shrinks the variance $\sigma^2/k$ but averages $f$ over a wider neighborhood, which increases the bias wherever $f$ is not flat. The choice of $k$ is exactly a bias--variance trade-off.
+\end{remark}
+
+\begin{remark}[The Trade-off Organizes Part~II]
+Much of Part~II consists of ways to move along the bias--variance curve deliberately. Subset selection and shrinkage (\cref{sec:subset,sec:ridge}) accept some bias for a large reduction in variance. Splines and local regression (\cref{ch:nonlinear}) have a smoothing parameter that plays the role of $k$. Bagging and random forests (\cref{alg:bagging,alg:random-forest}) reduce the variance of flexible trees by averaging, while boosting (\cref{alg:boosting}) reduces the bias of simple trees by adding them up. Bayesian averaging over parameters (\cref{sec:blr}) is yet another way to control variance.
+\end{remark}
+
+For classification there is no equally clean additive decomposition of the 0--1 loss, but the qualitative picture is the same: rigid classifiers have decision boundaries that cannot follow the Bayes boundary, flexible ones have boundaries that change with every training set, and the test error rate is U-shaped in flexibility.
+
+\begin{notebox}{Limitations and what comes next}
+The best predictors of this chapter are functionals of the unknown distribution $p(x,y)$, and the bias--variance trade-off tells us that estimating them well requires choosing a model family of the right complexity. Two ingredients are still missing. We need principles for fitting a model family to data, and for describing the uncertainty of the fit: maximum likelihood and Bayesian inference, developed in \cref{ch:probability}. And because fitting means solving an optimization problem that rarely has a closed-form solution, we need general algorithms for minimizing a training objective, developed in \cref{ch:optimization}.
+\end{notebox}

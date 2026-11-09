@@ -1,0 +1,24 @@
+{
+  "prior_mean": 5.0,
+  "toy_20-0_exact": {
+    "mean_shift": [
+      5.0,
+      5.0
+    ],
+    "max_abs_sd_change": 1.11e-16,
+    "P_B_better": [
+      1.07e-06,
+      1.07e-06
+    ]
+  },
+  "premier_league_mfvi": {
+    "mean_shift_average": 5.0,
+    "max_abs_mean_shift_error": 0.00198,
+    "max_abs_sd_change": 0.000834,
+    "max_abs_pairwise_P_change": 0.00298,
+    "P_Arsenal_better": [
+      0.0024,
+      0.0024
+    ]
+  }
+}

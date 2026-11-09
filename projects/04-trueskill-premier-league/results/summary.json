@@ -1,0 +1,127 @@
+{
+  "data": {
+    "n_games": 2500,
+    "n_teams": 33,
+    "first_date": "2014-12-20",
+    "last_date": "2023-05-28",
+    "draws_dropped_in_span": 759,
+    "home_win_fraction": 0.5848
+  },
+  "average_skill_exact": {
+    "mean": 0.0,
+    "sd": 0.1741
+  },
+  "log_evidence_is": -1506.7176,
+  "is_kish_ess": 193436,
+  "is_samples": 200000,
+  "log_evidence_is_inflated_proposal": -1506.7225,
+  "top10": {
+    "hmc": [
+      "Manchester City",
+      "Liverpool",
+      "Manchester Utd",
+      "Tottenham",
+      "Arsenal",
+      "Chelsea",
+      "Leicester City",
+      "Brentford",
+      "Wolves",
+      "West Ham"
+    ],
+    "mala": [
+      "Manchester City",
+      "Liverpool",
+      "Manchester Utd",
+      "Tottenham",
+      "Arsenal",
+      "Chelsea",
+      "Leicester City",
+      "Brentford",
+      "Wolves",
+      "West Ham"
+    ],
+    "mala_omitted": [
+      "Manchester City",
+      "Liverpool",
+      "Manchester Utd",
+      "Tottenham",
+      "Arsenal",
+      "Chelsea",
+      "Leicester City",
+      "Brentford",
+      "Wolves",
+      "West Ham"
+    ],
+    "mfvi": [
+      "Manchester City",
+      "Liverpool",
+      "Manchester Utd",
+      "Tottenham",
+      "Arsenal",
+      "Chelsea",
+      "Leicester City",
+      "Brentford",
+      "Wolves",
+      "West Ham"
+    ],
+    "fcvi": [
+      "Manchester City",
+      "Liverpool",
+      "Manchester Utd",
+      "Tottenham",
+      "Arsenal",
+      "Chelsea",
+      "Leicester City",
+      "Brentford",
+      "Wolves",
+      "West Ham"
+    ],
+    "svi_short": [
+      "Manchester City",
+      "Liverpool",
+      "Manchester Utd",
+      "Arsenal",
+      "Tottenham",
+      "Chelsea",
+      "Leicester City",
+      "Brentford",
+      "Wolves",
+      "West Ham"
+    ]
+  },
+  "runtime_seconds": {
+    "toy": 27.4,
+    "premier_league": 135.1,
+    "prior_shift": 18.0,
+    "total": 180.5
+  },
+  "settings": {
+    "quick": false,
+    "threads": 2,
+    "seed": 0,
+    "data": "data/premier-league-matches.csv",
+    "n_games": 2500,
+    "chains": 4,
+    "mala_warmup": 2000,
+    "mala_draws": 40000,
+    "hmc_warmup": 1000,
+    "hmc_draws": 20000,
+    "hmc_leapfrog": 15,
+    "hmc_jitter": 0.5,
+    "wrong_eta": 0.01,
+    "vi_iters": 20000,
+    "vi_lr": 0.02,
+    "vi_final_lr": 1e-05,
+    "vi_samples": 32,
+    "short_svi_iters": 200,
+    "short_svi_lr": 0.0001,
+    "short_svi_samples": 50,
+    "elbo_samples": 100000,
+    "is_samples": 200000,
+    "toy_mala_draws": 10000,
+    "toy_hmc_draws": 2500,
+    "toy_vi_iters": 5000,
+    "prior_shift": 5.0,
+    "torch_threads": 2
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "n_dags": 4000,
+  "queries": 20000,
+  "pairs": 112423,
+  "nodes_range": [
+    4,
+    12
+  ],
+  "tol": 1e-09,
+  "query_sets_bayes_ball_equals_bruteforce": 20000,
+  "pairs_bayes_ball_equals_bruteforce": 112423,
+  "pairs_d_separated": 34279,
+  "pairs_d_connected": 78144,
+  "pairs_numeric_agrees_with_dsep": 112421,
+  "max_deviation_d_separated": 3.3306690738754696e-16,
+  "min_deviation_d_connected": 3.8179792660741896e-11,
+  "d_connected_below_1e-6": 25,
+  "d_connected_below_tol": [
+    {
+      "deviation": 1.8472297302896123e-10,
+      "shortest_trail_length": 4
+    },
+    {
+      "deviation": 3.8179792660741896e-11,
+      "shortest_trail_length": 4
+    }
+  ],
+  "deviation_by_trail_length": {
+    "1": {
+      "pairs": 41366,
+      "median": 0.049238537055372,
+      "min": 2.7176841066456348e-06
+    },
+    "2": {
+      "pairs": 28678,
+      "median": 0.01698178453550106,
+      "min": 1.0049487347840724e-07
+    },
+    "3": {
+      "pairs": 6673,
+      "median": 0.005310649100442849,
+      "min": 1.1715436953885217e-09
+    },
+    "4": {
+      "pairs": 1203,
+      "median": 0.0012985807427325358,
+      "min": 3.8179792660741896e-11
+    },
+    "5": {
+      "pairs": 195,
+      "median": 0.00035586535537551756,
+      "min": 1.2059482384918496e-07
+    },
+    "6": {
+      "pairs": 24,
+      "median": 0.00013341590710981566,
+      "min": 2.383091133595361e-06
+    },
+    "7": {
+      "pairs": 5,
+      "median": 2.4002458196448195e-05,
+      "min": 1.7531674676406206e-07
+    }
+  }
+}
