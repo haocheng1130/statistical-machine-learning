@@ -71,6 +71,24 @@
 \crefname{algorithm}{Algorithm}{Algorithms}
 \crefname{assumption}{Assumption}{Assumptions}
 
+% hyperref names each link target <kind>.\theH<kind>. Without the chapter in it, every
+% "Algorithm x.3" or "Proposition x.15" shares one target, and a link to Algorithm 6.3
+% jumps to Algorithm 3.3. The theorem-like environments all share the counter "theorem".
+\makeatletter
+\@for\notes@kind:=theorem,lemma,proposition,corollary,definition,assumption,remark\do{%
+  \expandafter\xdef\csname theH\notes@kind\endcsname{\noexpand\theHchapter.\noexpand\arabic{theorem}}}
+\gdef\theHalgorithm{\theHchapter.\arabic{algorithm}}
+\gdef\theHALG@line{\theHalgorithm.\arabic{ALG@line}}% line numbers restart in every algorithm
+% A theorem's link target is otherwise placed in vertical mode before its heading, and a
+% page break can leave it at the bottom of the previous page. Place it again inside the
+% heading box, which cannot be separated from the theorem, and let \label use that one.
+\let\notes@deferred@thm@head\deferred@thm@head
+\def\deferred@thm@head#1{\notes@deferred@thm@head{\notes@thmanchor#1}}
+\newcommand{\notes@thmanchor}{%
+  \xdef\@currentHref{thmhead.\theHtheorem}%
+  \Hy@raisedlink{\hyper@anchorstart{\@currentHref}\hyper@anchorend}}
+\makeatother
+
 % ---------------------------------------------------------------- algorithms
 \algrenewcommand\algorithmicrequire{\textbf{Input:}}
 \algrenewcommand\algorithmicensure{\textbf{Output:}}
